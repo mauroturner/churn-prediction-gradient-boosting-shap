@@ -179,6 +179,43 @@ def canonical(tmp_path_factory: pytest.TempPathFactory, fixture_zip: Path, cfg):
 
 
 @pytest.fixture(scope="session")
+def loaded_masters(tmp_path_factory: pytest.TempPathFactory, canonical, cfg) -> Callable[[int], tuple[Path, object]]:
+    """``loaded_masters(upto)``: ``(path, LoadResult of its last load)`` of a warehouse with the standard fixture's first `upto` deliveries,
+    loaded by runs ``r1``, ``r2``... with the SHA-256 of their published file. Each is a copy of the largest one already built below it with
+    the missing deliveries loaded (project 03, D76). A test that writes works on ``copy_of(path)``. ``loaded_masters.entries`` holds the
+    manifest entry of each delivery."""
+    from churnrisk.deliveries import delivery_plan, delivery_rows, publish
+    from churnrisk.warehouse import connect, load_delivery
+
+    frame, _report = canonical
+    plan = delivery_plan(cfg)
+    folder = tmp_path_factory.mktemp("masters")
+    entries = {spec.delivery_id: publish(spec, frame, folder / "deliveries") for spec in plan}
+    built: dict[int, tuple[Path, object]] = {}
+
+    def build(upto: int) -> tuple[Path, object]:
+        if not 1 <= upto <= len(plan):
+            raise ValueError(f"upto: from 1 to {len(plan)}, got {upto}")
+        if upto not in built:
+            below = max((k for k in built if k < upto), default=0)
+            path = folder / f"master_{upto}.sqlite"
+            if below:
+                shutil.copy2(built[below][0], path)
+            conn = connect(path)
+            try:
+                for index in range(below, upto):
+                    spec = plan[index]
+                    result = load_delivery(conn, delivery_rows(spec, frame), spec, f"r{index + 1}", sha256=entries[spec.delivery_id].sha256)
+            finally:
+                conn.close()
+            built[upto] = (path, result)
+        return built[upto]
+
+    build.entries = entries
+    return build
+
+
+@pytest.fixture(scope="session")
 def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
     """``(fetch result, frame, report)``: the real canonical lines, built once per session from a copy of the pinned zip in a folder of the
     session's own (mark real_data only; the zip is never downloaded again). Reading the real workbook takes about 40 s, so every real_data

@@ -1,6 +1,6 @@
 """The validation (U08, AC07; RF08, D23): the rules of the source, of the delivery and of the lines, the interface of the model's rules, and
-how each rule aggregates over runs. Until the warehouse exists (U09), what a delivery is validated against is written by ``load_known``,
-which fills the two tables the validation reads (``deliveries`` and ``raw_lines``) with the columns the plan gives them (section 5)."""
+how each rule aggregates over runs. What a delivery is validated against is loaded into the warehouse first (``load_known``: U09's
+``load_delivery``), as the monthly runs will, so the validation reads the real tables."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from churnrisk.validate import (
     validate_source,
     write_report,
 )
+from churnrisk.warehouse import load_delivery
 from tests.fixtures.make_fixture import MEMBER
 
 PLAN_MD = Path(__file__).resolve().parents[2] / "docs" / "plan.md"
@@ -39,28 +40,29 @@ SOURCE_KINDS = {
     "renamed_sheet": "V04", "extra_column": "V04", "missing_column": "V04", "renamed_column": "V04", "bad_date": "V05", "bad_quantity": "V05",
     "six_digit_customer": "V05", "overlap_mismatch": "V06",
 }
-COLUMNS = ("line_id", "invoice", "stock_code", "quantity", "price", "customer_id", "country", "invoice_ts", "invoice_date", "code_kind")
 
 
-def load_known(conn: sqlite3.Connection, rows: pd.DataFrame, delivery_id: str) -> None:
-    """Record a delivery as loaded, with its lines, in the two tables the validation reads (U09 replaces this with the warehouse)."""
-    conn.execute("CREATE TABLE IF NOT EXISTS deliveries (delivery_id TEXT PRIMARY KEY, status TEXT)")
-    conn.execute(f"CREATE TABLE IF NOT EXISTS raw_lines ({', '.join(COLUMNS)})")
-    conn.execute("INSERT INTO deliveries VALUES (?, 'loaded')", (delivery_id,))
-    values = rows.assign(invoice_ts=rows["invoice_ts"].dt.strftime("%Y-%m-%d %H:%M:%S"), invoice_date=rows["invoice_date"].dt.strftime("%Y-%m-%d"),
-                         customer_id=rows["customer_id"].astype(object).where(rows["customer_id"].notna(), None))
-    conn.executemany(f"INSERT INTO raw_lines VALUES ({', '.join('?' for _ in COLUMNS)})", values[list(COLUMNS)].itertuples(index=False))
+def load_known(conn: sqlite3.Connection, cfg, rows: pd.DataFrame, delivery_id: str) -> None:
+    """Load a delivery into the warehouse (U09), as the run that validated it would."""
+    spec = next(s for s in delivery_plan(cfg) if s.delivery_id == delivery_id)
+    load_delivery(conn, rows, spec, f"load-{delivery_id}", sha256="0" * 64)
+
+
+def memory_warehouse() -> sqlite3.Connection:
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
 
 def validate_all(cfg, frame: pd.DataFrame, folder: Path) -> list[ValidationReport]:
     """Publish and validate every delivery of the plan in order, each against the ones before it, as the monthly runs will."""
-    conn = sqlite3.connect(":memory:")
+    conn = memory_warehouse()
     reports = []
     for spec in delivery_plan(cfg):
         entry = publish(spec, frame, folder)
         rows = delivery_rows(spec, frame)
         reports.append(validate_delivery(rows, spec, conn, cfg, entry=entry, delivery_path=folder / entry.file, run_key=f"r{len(reports) + 1}"))
-        load_known(conn, rows, spec.delivery_id)
+        load_known(conn, cfg, rows, spec.delivery_id)
     conn.close()
     return reports
 
@@ -161,7 +163,7 @@ def test_a_second_customer_on_an_invoice_is_v13_and_its_example_never_shows_a_nu
     frame, _report = read_source(xlsx, cfg)
     spec = delivery_plan(cfg)[0]
     entry = publish(spec, frame, tmp_path / "deliveries")
-    conn = sqlite3.connect(":memory:")
+    conn = memory_warehouse()
     report = validate_delivery(delivery_rows(spec, frame), spec, conn, cfg, entry=entry, delivery_path=tmp_path / "deliveries" / entry.file, run_key="r1")
     assert [r.rule_id for r in report.results if r.severity is Severity.BLOCKING and not r.passed] == ["V13"]
     v13 = by_rule(report)["V13"]
@@ -201,9 +203,9 @@ def small_delivery(**changes) -> pd.DataFrame:
 
 def run_delivery(cfg, tmp_path, rows, *, loaded=(), conn=None, spec_index=1, entry_rows=None, tamper=False):
     spec = delivery_plan(cfg)[spec_index]
-    conn = conn or sqlite3.connect(":memory:")
+    conn = conn or memory_warehouse()
     for delivery_id, known in loaded:
-        load_known(conn, known, delivery_id)
+        load_known(conn, cfg, known, delivery_id)
     out = tmp_path / "deliveries"
     entry = publish(spec, rows, out)
     if entry_rows is not None:
@@ -219,7 +221,7 @@ def test_the_delivery_must_be_the_next_one_of_the_plan(cfg, tmp_path):
     launch = small_delivery(invoice_ts=pd.to_datetime(["2011-07-03 10:00"] * 2 + ["2011-07-04 11:00"]), line_id=[1, 2, 3])
     ok = run_delivery(cfg, tmp_path / "b", rows, loaded=[("L2011-07", launch)])
     assert ok["V10"].passed and ok["V11"].passed and ok["V12"].passed and ok["V13"].passed and ok["V14"].passed
-    again = run_delivery(cfg, tmp_path / "c", rows, loaded=[("L2011-07", launch), ("M2011-08", rows.iloc[:0])])
+    again = run_delivery(cfg, tmp_path / "c", rows, loaded=[("L2011-07", launch), ("M2011-08", rows)])
     assert not again["V10"].passed and again["V10"].examples[0]["reason"] == "already_loaded"
 
 
@@ -231,8 +233,8 @@ def test_lines_outside_the_period_already_loaded_or_repeated_and_a_delivery_unli
     assert [e["reason"] for e in result["V12"].examples] == ["loaded", "repeated"]
     outside = small_delivery(invoice_ts=pd.to_datetime(["2011-09-01 00:00", "2011-09-01 00:10", "2011-08-04 11:00"]))   # the day after the period
     spec = delivery_plan(cfg)[1]
-    conn = sqlite3.connect(":memory:")
-    load_known(conn, launch, "L2011-07")
+    conn = memory_warehouse()
+    load_known(conn, cfg, launch, "L2011-07")
     out = tmp_path / "b"
     entry = publish(spec, outside, out)
     report = by_rule(validate_delivery(outside, spec, conn, cfg, entry=entry, delivery_path=out / entry.file, run_key="r9"))
