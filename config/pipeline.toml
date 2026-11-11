@@ -1,0 +1,111 @@
+# Pipeline configuration (plan, section 4). Every relative path is resolved against the project folder ($CHURNRISK_HOME or the parent
+# of this folder), never against the working directory (decision D32). Every key is either in the seal's fingerprint or declared
+# outside it (FINGERPRINT_KEYS and UNSEALED_KEYS in src/churnrisk/config.py, decision D19).
+
+[source]
+mode = "http"                        # "http" or "local"
+url = "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
+allowed_hosts = ["archive.ics.uci.edu"]
+max_redirects = 3
+max_seconds = 900                    # the whole download, every hop included: 45,622,418 bytes in 900 s is a floor of about 50 KB/s
+local_path = ""                      # local mode: the zip, relative to the project folder
+accepted_sha256 = "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb"   # http mode (V01)
+member = "online_retail_II.xlsx"
+member_sha256 = "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980"     # http mode (V03)
+max_bytes = 67108864                 # 64 MiB; the zip weighs 45,622,418 bytes
+max_member_bytes = 104857600         # 100 MiB uncompressed, as project 02; the workbook weighs 45,622,278 bytes
+sheets = ["Year 2009-2010", "Year 2010-2011"]
+chunk_bytes = 1048576
+timeout_s = 120
+
+[deliveries]                         # D11: a launch to 2011-07-31, monthly deliveries 2011-08 to 2011-11 and a close to the end of the data
+first_date = 2009-12-01
+launch_as_of = 2011-07-31
+last_date = 2011-12-09
+
+[label]                              # D06, D07: churned = no net purchase day in [c, c + N - 1]; population = a net purchase day in [c - M, c - 1]
+horizon_days = 90                    # N
+active_days = 90                     # M
+first_cut = 2010-06-01
+last_cut = 2011-12-01
+
+[split]                              # D08; every boundary between two blocks needs c_previous + N <= c_next (none between V1 and V2)
+train_first = 2010-06-01
+train_last = 2010-12-01
+v1_first = 2011-03-01
+v1_last = 2011-04-01
+v2_first = 2011-05-01
+v2_last = 2011-05-01
+test_first = 2011-08-01
+test_last = 2011-09-01
+
+[features]                           # D12
+candidate_sets = ["f0", "f1", "f2"]
+short_window_days = 90
+long_window_days = 365
+country_min_customers = 10
+
+[model]                              # D13: a fixed grid of 3 feature sets x 2 x 2 x 2, without early stopping
+learning_rate = [0.05, 0.1]
+max_leaf_nodes = [15, 31]
+min_samples_leaf = [50, 200]
+l2_regularization = 1.0
+max_iter = 300
+random_state = 0
+calibration = "isotonic"
+model_version = "v1"
+
+[baselines]                          # D16, D17
+bgnbd_fit_cut = 2010-12-01
+bgnbd_max_iter = 5000
+strongest_candidates = ["b4_frequency", "b2_rfm", "b3_bgnbd"]   # in order of simplicity, for the tie-break
+
+[costs]                              # declared assumptions, in generic units (D22): break-even offer_cost / (rescue_rate x retained_value) = 0.5
+offer_cost = 5.0
+rescue_rate = 0.2
+retained_value = 50.0
+threshold_min = 0.01
+threshold_max = 0.99
+threshold_step = 0.01
+sensitivity_min = 0.10
+sensitivity_max = 0.90
+sensitivity_step = 0.05
+
+[evaluation]
+bootstrap_resamples = 1000
+bootstrap_seed = 0
+calibration_bins = 10
+roc_points = 200
+gain_points = 100
+top_shares = [0.10, 0.20]
+shap_top_reasons = 3
+
+[sensitivity]                        # D10: reported, never used to choose
+variants = ["n60", "n120", "m180", "no_december"]
+n60_horizon_days = 60
+n120_horizon_days = 120
+m180_active_days = 180
+
+[criteria]                           # fixed before building (requirements.md 8.1, D18)
+c07_max_ece = 0.03
+c07_max_bias = 0.02
+leak_tripwire_auc = 0.95             # M01 (D41)
+shap_additivity_tol = 1e-6           # M06 (D15)
+
+[site]
+max_total_bytes = 204800
+min_cell_customers = 10
+
+[paths]
+raw_dir = "data/raw"
+interim_dir = "data/interim"
+warehouse = "data/warehouse/churnrisk.sqlite"
+models_dir = "data/models"
+outputs_dir = "outputs/powerbi"
+private_dir = "outputs/private"
+site_dir = "outputs/site"
+reports_dir = "reports"
+seal = "reports/model_seal.json"
+dashboard_html = "dashboard/powerbi-design.html"
+readme = "README.md"
+figures_dir = "docs/figures"

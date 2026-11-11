@@ -1,0 +1,40 @@
+# Quick mode for tests and development: the same pipeline on the synthetic fixture instead of the real zip.
+# Starts from pipeline.toml (same folder) and overrides only what is listed here.
+#
+#   python -m churnrisk make-fixture data/quick/online_retail_fixture.zip
+#   python -m churnrisk replay --config config/pipeline.quick.toml
+#
+# Everything the quick run reads and writes is under data/quick/ (git-ignored), resolved against the project folder: it never touches
+# the warehouse, the Parquet files, the private fact, the HTML design, the reports, the seal, the figures or the README of the full run,
+# and it does not depend on the directory it is started from (decision D32). The fixture covers the same calendar as the source.
+extends = "pipeline.toml"
+
+[source]
+mode = "local"
+url = ""                             # a local source has no address: this key would be ignored
+local_path = "data/quick/online_retail_fixture.zip"
+accepted_sha256 = ""                 # local mode records the first hash it sees
+member_sha256 = ""
+
+[model]                              # one configuration and 50 iterations: the quick run is about where the files go and that the flow runs
+learning_rate = [0.1]                # (project 03, D73)
+max_leaf_nodes = [15]
+min_samples_leaf = [20]
+max_iter = 50
+
+[evaluation]
+bootstrap_resamples = 200
+
+[paths]
+raw_dir = "data/quick/raw"
+interim_dir = "data/quick/interim"
+warehouse = "data/quick/churnrisk.sqlite"
+models_dir = "data/quick/models"
+outputs_dir = "data/quick/outputs/powerbi"
+private_dir = "data/quick/outputs/private"
+site_dir = "data/quick/outputs/site"
+reports_dir = "data/quick/reports"
+seal = "data/quick/reports/model_seal.json"
+dashboard_html = "data/quick/dashboard/powerbi-design.html"
+readme = "data/quick/README.md"
+figures_dir = "data/quick/figures"
