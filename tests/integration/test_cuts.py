@@ -144,3 +144,33 @@ def test_the_labelled_rows_are_the_features_of_the_closed_windows_with_their_blo
     assert set(validation["block"]) == {"valid_v1", "valid_v2"} and validation.equals(rows[rows["block"].isin(["valid_v1", "valid_v2"])])
     with pytest.raises(ValueError, match="bloque desconocido"):
         labelled_rows(conn, ["validation"])
+
+
+# --- the advisories of the reviews of U06-U10 (L47) -------------------------------------------------------------------------
+
+
+def test_build_cuts_nets_each_label_with_the_one_helper_and_counts_the_rows_it_wrote(cfg, loaded_masters, copy_of, monkeypatch, fixture_truth):
+    """R3-001: the label of each cut is netted with what is known at the end of its window by ``netting.net_lines_at``, the one helper for
+    the net lines known on a date, never by a composition of its own. R3-002: ``CutsResult.rows`` counts the rows the build wrote to each
+    table, and a build that writes nothing counts zero."""
+    import churnrisk.cuts as cuts
+    from churnrisk.netting import net_lines_at
+
+    calls: list[date] = []
+
+    def spy(conn, as_of, *args, **kwargs):
+        calls.append(as_of)
+        return net_lines_at(conn, as_of, *args, **kwargs)
+
+    monkeypatch.setattr(cuts, "net_lines_at", spy, raising=False)
+    view = SealedConfig.of(cfg, SHA)
+    conn = connect(copy_of(loaded_masters(1)[0]))
+    result = build_cuts(conn, date(2011, 7, 31), view, "r1")
+    assert calls == [label_end(c, view.label.horizon_days) for c in result.labelled_cuts] and len(calls) == 12
+    expected_rows = {"cut_features": sum(len(fixture_truth.population[c]) for c in result.populated_cuts),
+                     "cut_labels": sum(len(fixture_truth.labels[c]) for c in result.labelled_cuts)}
+    assert result.rows == expected_rows and min(expected_rows.values()) > 0
+    assert result.rows == {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("cut_features", "cut_labels")}
+    again = build_cuts(conn, date(2011, 7, 31), view, "r2")
+    assert again.rows == {"cut_features": 0, "cut_labels": 0} and len(calls) == 12
+    conn.close()

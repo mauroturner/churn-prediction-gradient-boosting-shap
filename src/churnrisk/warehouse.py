@@ -237,9 +237,11 @@ def run_checks(conn: sqlite3.Connection, group: Literal["load", "cuts", "model"]
 
 
 def _fail_on(checks: list[CheckResult], what: str) -> None:
+    """``CheckFailedError`` if a control has rows. It is raised inside the caller's open transaction, so the log says which control failed;
+    the caller logs «rolled back» only once its ROLLBACK has run."""
     failing = [c for c in checks if c.violations]
     for c in failing:
-        logger.error("%s rolled back: control %s violations=%d sample=%s", what, c.check_id, c.violations, c.sample)
+        logger.error("%s: control %s failed, violations=%d sample=%s", what, c.check_id, c.violations, c.sample)
     if failing:
         raise CheckFailedError(checks)
 
@@ -323,5 +325,6 @@ def rebuild_staging(conn: sqlite3.Connection, as_of: date) -> list[CheckResult]:
     except BaseException:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
+        logger.warning("staging at %s rolled back: the warehouse keeps what it had", as_of)
         raise
     return checks

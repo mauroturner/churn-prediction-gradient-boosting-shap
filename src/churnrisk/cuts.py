@@ -24,7 +24,7 @@ import pandas as pd
 
 from churnrisk.config import SealedConfig
 from churnrisk.features import compute_features, known_before
-from churnrisk.netting import customer_days, known_netting_inputs, net_cancellations
+from churnrisk.netting import customer_days, known_netting_inputs, net_lines_at
 from churnrisk.schema import FEATURE_COLUMNS
 from churnrisk.split import blocks, check_purges, is_censored
 from churnrisk.warehouse import CheckResult, _fail_on, apply_schema, rebuild_marts, run_checks, sql_params
@@ -90,10 +90,6 @@ def build_cuts(conn: sqlite3.Connection, as_of: date, view: SealedConfig, run_ke
     try:
         apply_schema(conn)
         purchases, cancellations = known_netting_inputs(conn, as_of)
-
-        def days_known(on: date) -> pd.DataFrame:
-            return customer_days(net_cancellations(purchases, cancellations, on).net_lines)
-
         cuts = cut_dates(view)
         populated = [c for c in cuts if c <= as_of + timedelta(days=1) and c not in _done(conn, "cut_features")]
         for cut in populated:
@@ -106,7 +102,7 @@ def build_cuts(conn: sqlite3.Connection, as_of: date, view: SealedConfig, run_ke
         for cut in labelled:
             members = pd.Index([r[0] for r in conn.execute("SELECT customer_id FROM cut_features WHERE cut_date = ? ORDER BY customer_id",
                                                              (cut.isoformat(),))], dtype="int64")
-            churned = label(days_known(label_end(cut, n)), cut, n, members)
+            churned = label(customer_days(net_lines_at(conn, label_end(cut, n), (purchases, cancellations))), cut, n, members)
             conn.executemany("INSERT INTO cut_labels (cut_date, customer_id, churned, label_end, known_as_of, run_key) VALUES (?, ?, ?, ?, ?, ?)",
                              [(cut.isoformat(), int(c), int(y), label_end(cut, n).isoformat(), as_of.isoformat(), run_key) for c, y in churned.items()])
         conn.executemany(
@@ -122,6 +118,7 @@ def build_cuts(conn: sqlite3.Connection, as_of: date, view: SealedConfig, run_ke
     except BaseException:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
+        logger.warning("cuts %s at %s rolled back: the warehouse keeps what it had", run_key, as_of)
         raise
     logger.info("cuts %s at %s: populated %s, labelled %s, rows %s", run_key, as_of, [c.isoformat() for c in populated], [c.isoformat() for c in labelled], rows)
     return CutsResult(as_of, populated, labelled, rows, checks)

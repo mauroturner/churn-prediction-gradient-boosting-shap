@@ -165,3 +165,18 @@ def test_the_inputs_of_the_netting_are_the_purchases_and_cancellations_of_the_ro
     purchases, cancellations = netting_inputs(frame)
     assert purchases["line_id"].tolist() == [1] and cancellations["line_id"].tolist() == [2], "the service line and the «C» line with no price are set aside"
     assert purchases["customer_id"].dtype == "int64"
+
+
+def test_outcomes_of_a_result_netted_on_another_date_or_with_other_cancellations_are_refused():
+    """R3-cancellation-outcomes-consistency-check-untested: the outcomes read a netting result against the cancellations known on a date; a
+    result netted on another date, or with other cancellations, does not add up (assigned plus unassigned is not what was cancelled) and is a
+    ValueError, never a silent count."""
+    case = hand_cases.netting_case()
+    late, early = date(2011, 1, 20), date(2011, 1, 10)
+    message = "lo asignado más lo no asignado no es lo anulado"
+    with pytest.raises(ValueError, match=message):
+        cancellation_outcomes(case.cancellations, net_cancellations(case.purchases, case.cancellations, early), late)
+    fewer = case.cancellations[case.cancellations["line_id"] != 5]
+    with pytest.raises(ValueError, match=message):
+        cancellation_outcomes(case.cancellations, net_cancellations(case.purchases, fewer, late), late)
+    assert len(cancellation_outcomes(case.cancellations, net_cancellations(case.purchases, case.cancellations, late), late)) == 5, "the pair that agrees"

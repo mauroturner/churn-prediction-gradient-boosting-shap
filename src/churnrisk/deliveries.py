@@ -178,12 +178,20 @@ def next_pending(manifest: Path, plan: list[DeliverySpec]) -> DeliverySpec | Non
 
 
 def mark_delivery(manifest: Path, delivery_id: str, status: str, run_key: str | None = None) -> None:
-    """Set the status of a delivery (and its run, if given); everything else in the manifest is kept."""
+    """Set the status of a delivery (and its run, if given); everything else in the manifest is kept.
+
+    A loaded delivery stays loaded by the run that loaded it: marking it rejected or published, or loaded by another run, is refused and the
+    manifest is not touched, because ``next_pending`` would offer it again and its lines would load twice (project 03, D86 and D93). Out of
+    ``published`` and ``rejected`` every status is allowed: a rejected delivery is published again and loaded by a later run."""
     if status not in DELIVERY_STATUSES:
         raise ValueError(f"status: {status!r} no es uno de {', '.join(DELIVERY_STATUSES)}")
     entries = read_manifest(manifest)
-    if not any(e.delivery_id == delivery_id for e in entries):
+    entry = next((e for e in entries if e.delivery_id == delivery_id), None)
+    if entry is None:
         raise ValueError(f"no hay una entrega {delivery_id} en el manifiesto {manifest}")
+    if entry.status == "loaded" and (status != "loaded" or (run_key is not None and run_key != entry.run_key)):
+        raise ValueError(f"la entrega {delivery_id} ya está cargada por la corrida {entry.run_key!r} y no pasa a {status!r}"
+                         f"{'' if run_key is None else f' de la corrida {run_key!r}'}: sus líneas ya están en el almacén (runbook R4)")
     _write_manifest(Path(manifest), [
         replace(e, status=status, run_key=run_key if run_key is not None else e.run_key) if e.delivery_id == delivery_id else e for e in entries
     ])

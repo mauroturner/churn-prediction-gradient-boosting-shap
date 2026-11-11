@@ -183,3 +183,78 @@ def test_a_line_outside_every_delivery_is_refused_and_the_manifest_reads_only_it
         path.write_text(broken, encoding="utf-8")
         with pytest.raises(ValueError, match="no es un manifiesto de entregas válido"):
             read_manifest(path)
+
+
+# --- the advisories of the reviews of U06-U10 (L47) -------------------------------------------------------------------------
+
+
+def test_a_loaded_delivery_never_leaves_loaded_and_the_manifest_is_unchanged_after_the_refusal(canonical, tmp_path):
+    """R3-mark-delivery-transition-unvalidated: a loaded delivery marked rejected or published would be offered again by next_pending and
+    load twice (project 03, D86 and D93). Every transition out of loaded is refused, and so is a load by another run; the manifest keeps its
+    bytes. The same run marking it loaded again changes nothing."""
+    frame, _report = canonical
+    out = tmp_path / "deliveries"
+    manifest = out / MANIFEST_NAME
+    for spec in FIXED_PLAN[:2]:
+        publish(spec, frame, out)
+    mark_delivery(manifest, "L2011-07", "loaded", run_key="r1")
+    before = manifest.read_bytes()
+    for status, run_key in (("rejected", "r2"), ("published", None), ("rejected", None), ("loaded", "r2")):
+        with pytest.raises(ValueError, match=r"la entrega L2011-07 ya está cargada por la corrida 'r1' y no pasa a"):
+            mark_delivery(manifest, "L2011-07", status, run_key=run_key)
+        assert manifest.read_bytes() == before, (status, run_key)
+    assert next_pending(manifest, FIXED_PLAN) == FIXED_PLAN[1], "the loaded launch is never offered again"
+    mark_delivery(manifest, "L2011-07", "loaded", run_key="r1")
+    mark_delivery(manifest, "L2011-07", "loaded")
+    assert {e.delivery_id: (e.status, e.run_key) for e in read_manifest(manifest)}["L2011-07"] == ("loaded", "r1")
+    # out of published and rejected every status is still allowed: a rejected delivery is repeated and loaded by a later run
+    mark_delivery(manifest, "M2011-08", "rejected", run_key="r2")
+    mark_delivery(manifest, "M2011-08", "published")
+    mark_delivery(manifest, "M2011-08", "rejected", run_key="r3")
+    mark_delivery(manifest, "M2011-08", "loaded", run_key="r4")
+    assert {e.delivery_id: (e.status, e.run_key) for e in read_manifest(manifest)}["M2011-08"] == ("loaded", "r4")
+
+
+ENTRY = {"delivery_id": "L2011-07", "kind": "launch", "lines_from": "2009-12-01", "lines_to": "2011-07-31", "as_of": "2011-07-31",
+         "cut": "2011-08-01", "rows": 3, "sha256": "a" * 64, "file": "L2011-07.parquet", "published_at": "2026-11-11T10:00:00+00:00",
+         "status": "published", "run_key": None}
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("rows", -1, "rows: se esperaba un entero"), ("rows", True, "rows: se esperaba un entero"), ("rows", "3", "rows: se esperaba un entero"),
+    ("rows", 3.0, "rows: se esperaba un entero"),
+    ("delivery_id", 7, "delivery_id: se esperaba un texto"), ("sha256", None, "sha256: se esperaba un texto"),
+    ("file", ["L2011-07.parquet"], "file: se esperaba un texto"), ("published_at", 20261111, "published_at: se esperaba un texto"),
+    ("kind", "weekly", "kind: 'weekly' no es uno de launch, monthly, close"),
+    ("status", "done", "status: 'done' no es uno de published, loaded, rejected"),
+    ("run_key", 1, "run_key: se esperaba un texto o null"), ("run_key", {"id": "r1"}, "run_key: se esperaba un texto o null"),
+])
+def test_a_manifest_entry_with_a_bad_field_is_refused_naming_it(tmp_path, field, value, message):
+    """R3-entry-from-validation-branches-untested: each defensive check of a manifest entry, through read_manifest."""
+    path = tmp_path / MANIFEST_NAME
+    good = {"version": 1, "entries": [ENTRY]}
+    path.write_text(json.dumps(good), encoding="utf-8")
+    assert [e.delivery_id for e in read_manifest(path)] == ["L2011-07"], "the entry is valid before it is damaged"
+    path.write_text(json.dumps({"version": 1, "entries": [{**ENTRY, field: value}]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="no es un manifiesto de entregas válido") as error:
+        read_manifest(path)
+    assert message in str(error.value)
+
+
+def test_a_delivery_with_no_rows_is_published_and_read_back(tmp_path):
+    """R3-publish-empty-delivery-untested: a period without lines is a Parquet of zero rows with the canonical schema, listed in the manifest
+    with 0 rows and the SHA-256 of its bytes; it reads back as an empty frame with the canonical columns, and publishing it again changes
+    nothing (V14 rejects an empty delivery later, in the validation)."""
+    out = tmp_path / "deliveries"
+    lines = lines_at("2011-07-15 10:00")                       # a line of the launch: the period of M2011-08 holds none
+    entry = publish(FIXED_PLAN[1], lines, out)
+    path = out / "M2011-08.parquet"
+    assert (entry.rows, entry.status, entry.sha256) == (0, "published", sha(path.read_bytes()))
+    table = pq.read_table(path)
+    assert table.num_rows == 0 and table.schema.remove_metadata() == CANONICAL_SCHEMA
+    back = read_delivery(path)
+    assert back.empty and list(back.columns) == CANONICAL_SCHEMA.names
+    assert str(back["customer_id"].dtype) == "Int64" and str(back["invoice_ts"].dtype) == "datetime64[ns]"
+    assert read_manifest(out / MANIFEST_NAME) == [entry]
+    manifest = (out / MANIFEST_NAME).read_bytes()
+    assert publish(FIXED_PLAN[1], lines, out) == entry and (out / MANIFEST_NAME).read_bytes() == manifest

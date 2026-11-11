@@ -175,7 +175,10 @@ def known_netting_inputs(conn, as_of: date) -> tuple[pd.DataFrame, pd.DataFrame]
     return netting_inputs(lines[lines["invoice_date"] <= pd.Timestamp(as_of)].reset_index(drop=True))
 
 
-def net_lines_at(conn, as_of: date) -> pd.DataFrame:
-    """The net lines known on `as_of` (plan, section 8), whatever the warehouse holds since."""
-    purchases, cancellations = known_netting_inputs(conn, as_of)
+def net_lines_at(conn, as_of: date, inputs: tuple[pd.DataFrame, pd.DataFrame] | None = None) -> pd.DataFrame:
+    """The net lines known on `as_of` (plan, section 8), whatever the warehouse holds since: the one helper for that composition.
+
+    `inputs` are the ``(purchases, cancellations)`` that ``known_netting_inputs`` already read from the same warehouse for a date on or
+    after `as_of`, so a caller that nets on several dates reads the warehouse once; only what is dated on or before `as_of` counts."""
+    purchases, cancellations = known_netting_inputs(conn, as_of) if inputs is None else inputs
     return net_cancellations(purchases, cancellations, as_of).net_lines
