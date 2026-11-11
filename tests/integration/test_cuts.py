@@ -74,10 +74,10 @@ def test_a_label_exists_only_once_its_window_has_closed(cfg, canonical, loaded_m
 
 
 @pytest.fixture
-def launched(cfg, loaded_masters, copy_of):
-    path = copy_of(loaded_masters(1)[0])
+def launched(launch_cuts, copy_of):
+    """A copy of the session's launch warehouse with its cuts built at 2011-07-31 (``launch_cuts``, the same view as SHA)."""
+    path = copy_of(launch_cuts)
     conn = connect(path)
-    build_cuts(conn, date(2011, 7, 31), SealedConfig.of(cfg, SHA), "r1")
     yield path, conn
     conn.close()
 

@@ -29,15 +29,19 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import re
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+from xml.sax.saxutils import escape as xml_escape
+
 import numpy as np
 import openpyxl
 import pandas as pd
+from openpyxl.utils.datetime import to_excel
 
 MEMBER = "online_retail_II.xlsx"
 SHEETS = ("Year 2009-2010", "Year 2010-2011")
@@ -312,13 +316,85 @@ def _normalise_xlsx(payload: bytes) -> bytes:
     return out.getvalue()
 
 
+_MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_DATETIME_STYLE = 1   # the cellXfs entry with the number format "yyyy-mm-dd hh:mm:ss" (custom format 164)
+_STYLES = (
+    f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="{_MAIN_NS}">'
+    '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/></numFmts>'
+    '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
+    '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'
+)
+
+
+def _column_letter(index: int) -> str:
+    letters = ""
+    while index:
+        index, rest = divmod(index - 1, 26)
+        letters = chr(65 + rest) + letters
+    return letters
+
+
+def _cell_xml(ref: str, value) -> str:
+    """One cell as openpyxl writes it: a number with ``%.16g``, a date and time as its Excel serial number with the date-time style, a text as
+    an inline string; an empty value (None or NaN) writes no cell, which reads back as None, as the empty cell pandas writes does."""
+    if value is None or (isinstance(value, float) and math.isnan(value)) or value is pd.NaT:
+        return ""
+    if isinstance(value, datetime):
+        return f'<c r="{ref}" s="{_DATETIME_STYLE}" t="n"><v>{"%.16g" % to_excel(value)}</v></c>'
+    if isinstance(value, (bool, np.bool_)):
+        return f'<c r="{ref}" t="b"><v>{int(value)}</v></c>'
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return f'<c r="{ref}" t="n"><v>{"%.16g" % value}</v></c>'
+    text = str(value)
+    space = ' xml:space="preserve"' if text != text.strip() else ""
+    return f'<c r="{ref}" t="inlineStr"><is><t{space}>{xml_escape(text)}</t></is></c>'
+
+
+def _sheet_xml(frame: pd.DataFrame) -> str:
+    letters = [_column_letter(i) for i in range(1, len(frame.columns) + 1)]
+    rows = [f'<row r="1">{"".join(_cell_xml(f"{c}1", name) for c, name in zip(letters, frame.columns, strict=True))}</row>']
+    columns = [frame[name].astype(object).tolist() for name in frame.columns]
+    for number, values in enumerate(zip(*columns, strict=True), start=2):
+        rows.append(f'<row r="{number}">{"".join(_cell_xml(f"{c}{number}", v) for c, v in zip(letters, values, strict=True))}</row>')
+    return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{_MAIN_NS}">'
+            f'<dimension ref="A1:{letters[-1]}{len(frame) + 1}"/><sheetData>{"".join(rows)}</sheetData></worksheet>')
+
+
 def _workbook_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
+    """The xlsx of `sheets` (a header row with the column names, then one row per line), written part by part.
+
+    The cells are what pandas' ``to_excel`` with openpyxl wrote (D49): the same values, the same number formatting and the date and time as a
+    serial number with the format ``yyyy-mm-dd hh:mm:ss``, read back identically by openpyxl in read-only and in normal mode; writing the XML
+    directly takes a tenth of the time (D63). Equal content gives equal bytes: the members have fixed timestamps (``_normalise_xlsx``)."""
+    names = list(sheets)
+    overrides = "".join(f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+                        for i in range(1, len(names) + 1))
+    parts = [
+        ("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+         '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+         f'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>{overrides}</Types>'),
+        ("_rels/.rels", f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="{_PKG_REL_NS}">'
+         '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'),
+        ("xl/workbook.xml", f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="{_MAIN_NS}" xmlns:r="{_REL_NS}"><sheets>'
+         + "".join(f'<sheet name="{xml_escape(name)}" sheetId="{i}" r:id="rId{i}"/>' for i, name in enumerate(names, start=1)) + "</sheets></workbook>"),
+        ("xl/_rels/workbook.xml.rels", f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="{_PKG_REL_NS}">'
+         + "".join(f'<Relationship Id="rId{i}" Type="{_REL_NS}/worksheet" Target="worksheets/sheet{i}.xml"/>' for i in range(1, len(names) + 1))
+         + f'<Relationship Id="rId{len(names) + 1}" Type="{_REL_NS}/styles" Target="styles.xml"/></Relationships>'),
+        ("xl/styles.xml", _STYLES),
+        *((f"xl/worksheets/sheet{i}.xml", _sheet_xml(frame)) for i, frame in enumerate(sheets.values(), start=1)),
+    ]
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl", datetime_format="yyyy-mm-dd hh:mm:ss") as writer:
-        for name, frame in sheets.items():
-            frame.to_excel(writer, sheet_name=name, index=False)
-        writer.book.properties.created = FIXED_TIME
-        writer.book.properties.modified = FIXED_TIME
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, text in parts:
+            archive.writestr(name, text.encode("utf-8"))
     return _normalise_xlsx(buffer.getvalue())
 
 

@@ -272,6 +272,28 @@ def loaded_masters(tmp_path_factory: pytest.TempPathFactory, canonical, cfg) -> 
     return build
 
 
+LAUNCH_RUN_SHA = "d" * 64   # the source hash of the sealed view of the cuts built by launch_cuts
+
+
+@pytest.fixture(scope="session")
+def launch_cuts(tmp_path_factory: pytest.TempPathFactory, loaded_masters, cfg) -> Path:
+    """The warehouse of ``loaded_masters(1)`` (the launch L2011-07 loaded by run ``r1``) with its cuts built at the launch's calculation date
+    by the same run, built once per session (D63): the tests of the cuts and every later state of the launch start from a copy of it."""
+    from churnrisk.config import SealedConfig
+    from churnrisk.cuts import build_cuts
+    from churnrisk.deliveries import delivery_plan
+    from churnrisk.warehouse import connect
+
+    path = tmp_path_factory.mktemp("launch_cuts") / "launch_cuts.sqlite"
+    shutil.copy2(loaded_masters(1)[0], path)
+    conn = connect(path)
+    try:
+        build_cuts(conn, delivery_plan(cfg)[0].as_of, SealedConfig.of(cfg, LAUNCH_RUN_SHA), "r1")
+    finally:
+        conn.close()
+    return path
+
+
 @pytest.fixture(scope="session")
 def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
     """``(fetch result, frame, report)``: the real canonical lines, built once per session from a copy of the pinned zip in a folder of the

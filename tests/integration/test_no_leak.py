@@ -43,14 +43,13 @@ def test_features_at_a_cut_equal_those_from_data_truncated_the_day_before(cfg, c
         pd.testing.assert_frame_equal(stored.xs(cut, level="cut_date"), expected, check_exact=True, obj=str(cut))
 
 
-def test_lines_and_cancellations_from_the_cut_on_change_nothing_at_that_date(cfg, canonical, loaded_masters, copy_of, tmp_path):
+def test_lines_and_cancellations_from_the_cut_on_change_nothing_at_that_date(cfg, canonical, launch_cuts, copy_of, tmp_path):
     frame, _report = canonical
     view = SealedConfig.of(cfg, SHA)
     launch = delivery_plan(cfg)[0]
     cut = date(2011, 3, 1)
-    conn = connect(copy_of(loaded_masters(1)[0]))
+    conn = connect(copy_of(launch_cuts))           # the launch's cuts built at its date with the same view (SHA)
     try:
-        build_cuts(conn, launch.as_of, view, "r1")
         base = read_features(conn)
     finally:
         conn.close()
