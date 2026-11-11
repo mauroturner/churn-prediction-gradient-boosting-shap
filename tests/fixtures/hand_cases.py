@@ -109,6 +109,63 @@ def cuts_case() -> CutsCase:
     )
 
 
+# --- the features of a cut (U11, AC12, AC13) -------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FeaturesCase:
+    purchases: pd.DataFrame
+    cancellations: pd.DataFrame
+    cut: date
+    customers: tuple[int, ...]
+    expected: dict[int, dict[str, object]]
+
+
+def features_case() -> FeaturesCase:
+    """Three customers at the cut 2011-03-01, with the windows of 90 days ([2010-12-01, 2011-02-28]) and 365 days ([2010-03-01, 2011-02-28]).
+
+    - 201 buys A (4 x 2.50) on 2010-02-20, outside both windows, and cancels 1 A on 2010-02-25 (a cancellation older than 365 days); B
+      (10 x 1.00) on 2010-03-01, the first day of the long window; A (6 x 2.00) and C (3 x 5.00) on 2010-12-01, the first day of the short one;
+      B (8 x 1.50) on 2011-02-28 in EIRE, its last line. It cancels 4 B on 2011-01-15, which come off the B of 2010-03-01 (the one of 2011-02-28
+      is later): that line keeps 6 units, 6.00. It cancels 6 A on 2011-03-05 and buys D on 2011-03-02 in France, after the cut: neither is
+      known. Net days 2010-02-20 (7.50, 3 units), 2010-03-01 (6.00, 6), 2010-12-01 (27.00, 9) and 2011-02-28 (12.00, 8): recency 1, tenure 374
+      (2010-02-20 to 2011-03-01), 4 days in all, 2 in 90 days and 3 in 365, 52.50, 39.00 and 45.00, 13.125 a day, 17 units in 90 days; gaps of
+      9, 275 and 89 days (mean 373 / 3, max 275); products A, B and C in 365 days, net units per line 6, 6, 3 and 8 (median 6, where the
+      units before the cancellation would give 7); one cancellation in 365 days worth 6.00; country EIRE.
+    - 202 buys E (2 x 3.00) on 2011-01-10 in France and F (5 x 2.00) on 2011-02-01 in Germany, cancelled whole on 2011-02-03 in Belgium: that
+      day has no net purchase and F no net unit. One net day: recency and tenure 50, gaps 0 (one day), one product, median 2, one cancellation
+      worth 10.00; its last line is the cancellation, so its country is Belgium.
+    - 203 buys G (1 x 10.00) on 2010-11-30, the day before the short window, and G (1 x 5.00) on 2011-02-01, and G (50 x 1.00) on the cut day
+      itself, which is after the history: 1 day in 90 days (5.00) and 2 in 365 (15.00), a gap of 63 days, recency 28, tenure 91.
+    """
+    def line(line_id, customer, code, when, quantity, price, country="United Kingdom"):
+        return {**event(line_id, customer, code, when, quantity, price), "country": country}
+
+    rows = [
+        line(1, 201, "A", "2010-02-20 10:00", 4, 2.5), line(2, 201, "B", "2010-03-01 09:00", 10, 1.0), line(3, 201, "A", "2010-12-01 11:00", 6, 2.0),
+        line(4, 201, "C", "2010-12-01 15:00", 3, 5.0), line(5, 201, "B", "2011-02-28 10:00", 8, 1.5, "EIRE"), line(6, 201, "B", "2011-01-15 10:00", -4, 1.5),
+        line(7, 201, "A", "2011-03-05 10:00", -6, 2.0), line(8, 201, "D", "2011-03-02 10:00", 1, 100.0, "France"),
+        line(15, 201, "A", "2010-02-25 10:00", -1, 2.5),
+        line(9, 202, "E", "2011-01-10 10:00", 2, 3.0, "France"), line(10, 202, "F", "2011-02-01 10:00", 5, 2.0, "Germany"),
+        line(11, 202, "F", "2011-02-03 10:00", -5, 2.0, "Belgium"),
+        line(12, 203, "G", "2010-11-30 10:00", 1, 10.0), line(13, 203, "G", "2011-02-01 10:00", 1, 5.0), line(14, 203, "G", "2011-03-01 00:00", 50, 1.0),
+    ]
+    frame = pd.DataFrame(rows).astype({"line_id": "int64", "customer_id": "int64", "quantity": "int64"})
+    expected = {
+        201: {"rec_days": 1, "tenure_days": 374, "freq_total": 4, "freq_90": 2, "freq_365": 3, "mon_total": 52.5, "mon_90": 39.0, "mon_365": 45.0,
+              "aov_day": 13.125, "units_90": 17, "gap_mean": 373 / 3, "gap_max": 275, "n_products_365": 3, "med_units_365": 6.0, "canc_365": 1,
+              "canc_value_365": 6.0, "country_group": "EIRE"},
+        202: {"rec_days": 50, "tenure_days": 50, "freq_total": 1, "freq_90": 1, "freq_365": 1, "mon_total": 6.0, "mon_90": 6.0, "mon_365": 6.0,
+              "aov_day": 6.0, "units_90": 2, "gap_mean": 0.0, "gap_max": 0, "n_products_365": 1, "med_units_365": 2.0, "canc_365": 1,
+              "canc_value_365": 10.0, "country_group": "Belgium"},
+        203: {"rec_days": 28, "tenure_days": 91, "freq_total": 2, "freq_90": 1, "freq_365": 2, "mon_total": 15.0, "mon_90": 5.0, "mon_365": 15.0,
+              "aov_day": 7.5, "units_90": 1, "gap_mean": 63.0, "gap_max": 63, "n_products_365": 1, "med_units_365": 1.0, "canc_365": 0,
+              "canc_value_365": 0.0, "country_group": "United Kingdom"},
+    }
+    return FeaturesCase(frame[frame["quantity"] > 0].reset_index(drop=True), frame[frame["quantity"] < 0].reset_index(drop=True), date(2011, 3, 1),
+                        (201, 202, 203), expected)
+
+
 # --- RFM quintiles inside a cut (U12, AC15) -------------------------------------------------------------------------
 
 

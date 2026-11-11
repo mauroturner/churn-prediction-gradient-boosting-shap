@@ -6,10 +6,11 @@ has no net purchase day in ``[c, c + N - 1]``, with the cancellations known on `
 not count; one cancelled later does): what happens in its window. They live in two insert-only tables, ``cut_features`` and ``cut_labels``,
 and a label is written only once the calculation date reaches the end of its window (D06).
 
-``build_cuts`` runs at every calculation date ``as_of``: it writes the population of every cut ``c <= as_of + 1`` that has none yet, the
-label of every cut whose window has closed (``c + N - 1 <= as_of``) and that has none yet, and the block of every cut (``cut_blocks``), and
+``build_cuts`` runs at every calculation date ``as_of``: it writes the population of every cut ``c <= as_of + 1`` that has none yet, with its
+features (``features.compute_features``, from what is known before the cut), the label of every cut whose window has closed
+(``c + N - 1 <= as_of``) and that has none yet, and the block of every cut (``cut_blocks``), rebuilds the marts of ``sql/marts/ops/`` and
 runs the controls of ``sql/checks/cuts/``, all in one transaction. It nets only the lines dated on or before each date it needs, so what the
-warehouse holds since changes nothing (RNF06 b). The features of U11 join the population in ``cut_features``.
+warehouse holds since changes nothing (RNF06 b).
 """
 
 from __future__ import annotations
@@ -22,9 +23,14 @@ from datetime import date, timedelta
 import pandas as pd
 
 from churnrisk.config import SealedConfig
+from churnrisk.features import compute_features, known_before
 from churnrisk.netting import customer_days, known_netting_inputs, net_cancellations
+from churnrisk.schema import FEATURE_COLUMNS
 from churnrisk.split import blocks, check_purges, is_censored
-from churnrisk.warehouse import CheckResult, _fail_on, apply_schema, run_checks, sql_params
+from churnrisk.warehouse import CheckResult, _fail_on, apply_schema, rebuild_marts, run_checks, sql_params
+
+FEATURE_INSERT = (f"INSERT INTO cut_features (cut_date, customer_id, {', '.join(FEATURE_COLUMNS)}, computed_as_of, run_key) "
+                  f"VALUES ({', '.join('?' for _ in range(len(FEATURE_COLUMNS) + 4))})")
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +97,11 @@ def build_cuts(conn: sqlite3.Connection, as_of: date, view: SealedConfig, run_ke
         cuts = cut_dates(view)
         populated = [c for c in cuts if c <= as_of + timedelta(days=1) and c not in _done(conn, "cut_features")]
         for cut in populated:
-            members = population(days_known(cut - timedelta(days=1)), cut, m)
-            conn.executemany("INSERT INTO cut_features (cut_date, customer_id, computed_as_of, run_key) VALUES (?, ?, ?, ?)",
-                             [(cut.isoformat(), int(c), as_of.isoformat(), run_key) for c in members])
+            days_before, lines_before = known_before(purchases, cancellations, cut)
+            members = population(days_before, cut, m)
+            values = compute_features(days_before, lines_before, cut, members, view)
+            conn.executemany(FEATURE_INSERT, [(cut.isoformat(), int(customer), *(v.item() if hasattr(v, "item") else v for v in row), as_of.isoformat(), run_key)
+                                              for customer, row in zip(values.index, values.itertuples(index=False, name=None), strict=True)])
         labelled = [c for c in cuts if label_end(c, n) <= as_of and c not in _done(conn, "cut_labels")]
         for cut in labelled:
             members = pd.Index([r[0] for r in conn.execute("SELECT customer_id FROM cut_features WHERE cut_date = ? ORDER BY customer_id",
@@ -106,6 +114,7 @@ def build_cuts(conn: sqlite3.Connection, as_of: date, view: SealedConfig, run_ke
             "block = excluded.block, label_end = excluded.label_end, is_censored = excluded.is_censored",
             [(c.isoformat(), b, label_end(c, n).isoformat(), int(is_censored(c, view))) for c, b in blocks(view).items()],
         )
+        rebuild_marts(conn, "ops", sql_params(as_of))
         checks = run_checks(conn, "cuts", {**sql_params(as_of), "horizon_days": n, "active_days": m})
         _fail_on(checks, f"cuts {run_key} at {as_of}")
         rows = {table: int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE run_key = ?", (run_key,)).fetchone()[0]) for table in ("cut_features", "cut_labels")}

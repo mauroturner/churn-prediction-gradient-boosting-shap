@@ -51,11 +51,12 @@ def _check(frame: pd.DataFrame, what: str) -> None:
 
 
 def netting_inputs(lines: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """``(purchases, cancellations)``: the canonical lines whose role is a purchase or a cancellation (RF05), with an ``int64`` customer."""
+    """``(purchases, cancellations)``: the canonical lines whose role is a purchase or a cancellation (RF05), with an ``int64`` customer. The
+    country of each line comes along when the lines have it: the country of a customer at a cut is the one of its last line (V30, U11)."""
     from churnrisk.validate import classify_lines   # here, not at the top: the validation nets the deliveries (V22) and imports this module
 
     roles = classify_lines(lines)["role"]
-    columns = [c for c in lines.columns if c in (*REQUIRED, "code_kind")]
+    columns = [c for c in lines.columns if c in (*REQUIRED, "code_kind", "country")]
     out = []
     for role in ("purchase", "cancellation"):
         chosen = lines.loc[roles == role, columns]

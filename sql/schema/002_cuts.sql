@@ -1,6 +1,8 @@
--- The cuts (plan, sections 5 and 9; D24): the block of every cut, the population known before it (cut_features) and the label of its window
--- (cut_labels), in separate tables. cut_features and cut_labels are insert only: an UPDATE, a DELETE or an INSERT on a key already written
--- (INSERT OR REPLACE deletes without firing the delete trigger; project 02, D44) is refused. U11 adds the features to cut_features.
+-- The cuts (plan, sections 5 and 9; D24): the block of every cut, the population known before it with its features (cut_features) and the
+-- label of its window (cut_labels), in separate tables. cut_features and cut_labels are insert only: an UPDATE, a DELETE or an INSERT on a key
+-- already written (INSERT OR REPLACE deletes without firing the delete trigger; project 02, D44) is refused. The features (plan, section 10;
+-- D12) are computed from what is known before the cut; country_group is the country of the customer's last line, which the model groups with
+-- the list fixed at the launch (D57).
 
 CREATE TABLE IF NOT EXISTS cut_blocks (
     cut_date TEXT PRIMARY KEY,
@@ -12,6 +14,23 @@ CREATE TABLE IF NOT EXISTS cut_blocks (
 CREATE TABLE IF NOT EXISTS cut_features (
     cut_date TEXT NOT NULL,
     customer_id INTEGER NOT NULL,
+    country_group TEXT NOT NULL,
+    rec_days INTEGER NOT NULL,
+    tenure_days INTEGER NOT NULL,
+    freq_total INTEGER NOT NULL,
+    freq_90 INTEGER NOT NULL,
+    freq_365 INTEGER NOT NULL,
+    mon_total REAL NOT NULL,
+    mon_90 REAL NOT NULL,
+    mon_365 REAL NOT NULL,
+    aov_day REAL NOT NULL,
+    units_90 INTEGER NOT NULL,
+    gap_mean REAL NOT NULL,
+    gap_max INTEGER NOT NULL,
+    n_products_365 INTEGER NOT NULL,
+    med_units_365 REAL NOT NULL,
+    canc_365 INTEGER NOT NULL,
+    canc_value_365 REAL NOT NULL,
     computed_as_of TEXT NOT NULL,
     run_key TEXT NOT NULL,
     PRIMARY KEY (cut_date, customer_id)

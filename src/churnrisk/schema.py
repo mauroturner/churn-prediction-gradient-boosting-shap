@@ -40,6 +40,8 @@ FEATURE_COLUMNS: tuple[str, ...] = (
 LABEL_COLUMNS: tuple[str, ...] = ("churned", "label_end", "known_as_of", "returned", "first_return_date", "days_to_next_purchase")
 # What identifies a customer or an invoice (D26): never a feature and never in a published file
 IDENTIFIER_COLUMNS: tuple[str, ...] = ("customer_id", "invoice")
+# The calendar of a cut (D09): no month or day can be learnt with one cut a month, so none is ever a feature
+CALENDAR_COLUMNS: tuple[str, ...] = ("cut_month", "cut_date", "month", "weekday")
 
 
 class SourceError(RuntimeError):

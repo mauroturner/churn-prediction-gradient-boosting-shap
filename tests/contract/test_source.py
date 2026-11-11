@@ -29,7 +29,7 @@ from churnrisk.ingest import (
     read_source,
     write_source_manifest,
 )
-from churnrisk.schema import CANONICAL_SCHEMA, FEATURE_COLUMNS, IDENTIFIER_COLUMNS, LABEL_COLUMNS, SourceError, code_kind
+from churnrisk.schema import CALENDAR_COLUMNS, CANONICAL_SCHEMA, FEATURE_COLUMNS, IDENTIFIER_COLUMNS, LABEL_COLUMNS, SourceError, code_kind
 from churnrisk.validate import EXCLUSION_RULES, classify_lines
 from tests.fixtures.http_server import FileServer
 from tests.fixtures.make_fixture import CASE_BASE, MEMBER, OVERLAP_END, OVERLAP_START
@@ -336,5 +336,6 @@ def test_each_line_is_set_aside_by_the_first_rule_that_applies(invoice, quantity
 def test_the_lists_of_columns_never_share_a_name():
     assert not set(FEATURE_COLUMNS) & set(LABEL_COLUMNS) and not set(FEATURE_COLUMNS) & set(IDENTIFIER_COLUMNS)
     assert not set(LABEL_COLUMNS) & set(IDENTIFIER_COLUMNS) and len(FEATURE_COLUMNS) == 17
+    assert not set(CALENDAR_COLUMNS) & (set(FEATURE_COLUMNS) | set(LABEL_COLUMNS) | set(IDENTIFIER_COLUMNS))
     assert [code_kind(c) for c in ("85123A", "22423", "DCGS0076", "PADS", "POST", "gift_0001_20", "M", "BANK CHARGES")] == [
         "product", "product", "product", "service", "service", "gift_voucher", "service", "service"]
