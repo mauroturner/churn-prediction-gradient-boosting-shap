@@ -1,0 +1,11 @@
+# Development and test dependencies (decision D38). lifetimes is a test-only oracle for the BG/NBD of src/churnrisk/bgnbd.py
+# (decision D17, mark "oracle"); the pipeline never imports it. pytest-xdist is not pinned (decision D35).
+-r requirements.txt
+pytest==9.2.0
+lifetimes==0.11.3
+# transitive
+autograd==1.9.1
+dill==0.4.1
+iniconfig==2.3.1
+pluggy==1.7.0
+Pygments==2.21.0

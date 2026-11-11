@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "churnrisk"
+version = "0.1.0"
+description = "Customers about to leave: calibrated churn risk per active customer at each monthly cut, its SHAP reasons and a cost-based contact list on UCI Online Retail II."
+# 3.11 on the developer machine (Windows) and 3.13 in the apache/airflow:3.4.0 image (decision D38).
+requires-python = ">=3.11,<3.14"
+# Runtime and development dependencies are pinned in requirements.txt and requirements-dev.txt (decision D38).
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# "src" makes the package importable without installing it; "." makes tests.fixtures importable.
+pythonpath = ["src", "."]
+addopts = "-ra --strict-markers --import-mode=importlib -m 'not real_data and not docker'"
+markers = [
+    "real_data: needs the real zip in data/raw/ (skipped by default)",
+    "docker: needs Docker (skipped by default)",
+    "oracle: compares against lifetimes, a development-only dependency (runs by default)",
+]
