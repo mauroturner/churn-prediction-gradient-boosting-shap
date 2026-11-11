@@ -68,8 +68,11 @@ def test_a_set_that_would_produce_a_leaking_column_is_refused(monkeypatch):
 
 
 def test_feature_code_never_reads_label_tables():
-    """The code of the features and the SQL that serves them never name a table of labels or the reader of the labelled rows (AC12)."""
-    files = [features.__file__, SQL_DIR / "marts" / "ops" / "mart_cut_population.sql"]
+    """The code of the features, of the explanations and the SQL that serves the features never name a table of labels or the reader of the
+    labelled rows (AC12; scoring.py joins the list in U16)."""
+    from churnrisk import explain
+
+    files = [features.__file__, explain.__file__, SQL_DIR / "marts" / "ops" / "mart_cut_population.sql"]
     for path in files:
         text = open(path, encoding="utf-8").read().lower()
         for name in ("cut_labels", "mart_labelled_rows", "labelled_rows"):
