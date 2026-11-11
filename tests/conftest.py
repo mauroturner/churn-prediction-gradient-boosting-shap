@@ -153,6 +153,63 @@ def signal_truth(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], ob
     return build
 
 
+@pytest.fixture(scope="session")
+def signal_launch(tmp_path_factory: pytest.TempPathFactory, signal_truth: Callable[[str], object], cfg) -> Callable[[str], Path]:
+    """``signal_launch(signal)``: a warehouse with the launch delivery of the signal fixture loaded and its cuts built at the launch's
+    calculation date, each built once per session. A test that writes works on ``copy_of(path)``."""
+    from churnrisk.config import SealedConfig
+    from churnrisk.cuts import build_cuts
+    from churnrisk.deliveries import delivery_plan, delivery_rows, publish
+    from churnrisk.ingest import extract_member, read_source
+    from churnrisk.warehouse import connect, load_delivery
+
+    folder = tmp_path_factory.mktemp("signal_launch")
+    built: dict[str, Path] = {}
+
+    def build(signal: str) -> Path:
+        if signal not in built:
+            zip_path = signal_truth(signal).path
+            xlsx = extract_member(zip_path, cfg.source.member, cfg.source.max_member_bytes, "", out_dir=folder / f"{signal}_xlsx")
+            frame, _report = read_source(xlsx, cfg)
+            launch = delivery_plan(cfg)[0]
+            entry = publish(launch, frame, folder / f"{signal}_deliveries")
+            path = folder / f"{signal}.sqlite"
+            conn = connect(path)
+            try:
+                load_delivery(conn, delivery_rows(launch, frame), launch, "r1", sha256=entry.sha256)
+                build_cuts(conn, launch.as_of, SealedConfig.of(cfg, "a" * 64), "r1")
+            finally:
+                conn.close()
+            built[signal] = path
+        return built[signal]
+
+    return build
+
+
+@pytest.fixture(scope="session")
+def launch_model(signal_launch: Callable[[str], Path], cfg) -> Callable[[str], tuple[object, object]]:
+    """``launch_model(signal)``: ``(labelled rows, TrainedModel)`` of the launch on the signal fixture with the default configuration (the
+    24 candidates), each trained once per session: the model's tests and the explanations share it."""
+    from churnrisk.config import SealedConfig
+    from churnrisk.model import train_model
+    from churnrisk.split import labelled_rows
+    from churnrisk.warehouse import connect
+
+    trained: dict[str, tuple[object, object]] = {}
+
+    def train(signal: str) -> tuple[object, object]:
+        if signal not in trained:
+            conn = connect(signal_launch(signal))
+            try:
+                labelled = labelled_rows(conn)
+            finally:
+                conn.close()
+            trained[signal] = (labelled, train_model(labelled, SealedConfig.of(cfg, "a" * 64)))
+        return trained[signal]
+
+    return train
+
+
 @pytest.fixture
 def copy_of(tmp_path: Path) -> Callable[[Path], Path]:
     """``copy_of(path)``: a copy of a file or a folder inside this test's ``tmp_path``, for a test that writes."""
