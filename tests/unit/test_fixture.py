@@ -225,6 +225,21 @@ def test_an_unknown_malformed_kind_or_signal_is_refused(tiny_zip, tmp_path):
         simulate_customers(10, 0, "nonsense")
 
 
+def test_too_few_plain_rows_to_repeat_in_a_window_is_refused_with_the_window_and_both_sizes():
+    """R3-fixture-repeat-rows-pool: the repeats are drawn without replacement, so a window with fewer plain rows than repeats is a clear
+    error of the generator, not numpy's."""
+    from datetime import datetime
+
+    from tests.fixtures.make_fixture import _repeat_rows
+
+    def row(day: date) -> dict:
+        return {"labels": (), "Quantity": 1, "Price": 1.0, "InvoiceDate": datetime.combine(day, datetime.min.time())}
+
+    rows = [row(date(2010, 1, d)) for d in range(1, 6)] + [row(date(2011, 2, d)) for d in range(1, 5)] + [row(date(2010, 12, 3))]
+    with pytest.raises(ValueError, match=r"^the window 2010-12-01 to 2010-12-09 has 1 plain rows to repeat and 2 are needed$"):
+        _repeat_rows(rows, np.random.default_rng(0))
+
+
 # --- the hand cases agree with a brute-force reading of their rule ----------------------------------------------------
 
 

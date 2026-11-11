@@ -39,6 +39,20 @@ def test_a_part_of_the_suite_or_a_session_under_the_limit_passes(pytester):
     assert result.ret == 0 and "La suite rápida tardó" not in result.stdout.str()
 
 
+def test_the_guards_mark_expression_is_the_default_one_of_pyproject():
+    """R3-suite-budget-markexpr-drift: the guard recognises the default selection by its mark expression, so it must be the one that
+    pyproject.toml passes to every session; if they drifted apart, no session would ever be failed for its time."""
+    import shlex
+    import tomllib
+    from pathlib import Path
+
+    from tests.fixtures.suite_budget import DEFAULT_MARKEXPR
+
+    pyproject = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8"))
+    tokens = shlex.split(pyproject["tool"]["pytest"]["ini_options"]["addopts"])
+    assert tokens.count("-m") == 1 and tokens[tokens.index("-m") + 1] == DEFAULT_MARKEXPR
+
+
 def test_the_project_limit_is_120_seconds(pytestconfig):
     from tests.fixtures.suite_budget import FAST_SUITE_LIMIT_S
 

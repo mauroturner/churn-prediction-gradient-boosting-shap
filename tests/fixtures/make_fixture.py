@@ -416,6 +416,8 @@ def _repeat_rows(rows: list[dict], rng: np.random.Generator) -> list[dict]:
 
     def pick(low: date, high: date, count: int) -> list[int]:
         pool = [i for i in plain if low <= rows[i]["InvoiceDate"].date() <= high]
+        if len(pool) < count:   # drawn without replacement: say which window is short, not numpy's generic error
+            raise ValueError(f"the window {low} to {high} has {len(pool)} plain rows to repeat and {count} are needed")
         return [int(i) for i in rng.choice(pool, size=count, replace=False)]
 
     chosen = set(pick(WINDOW_START, OVERLAP_START - timedelta(days=1), 4))

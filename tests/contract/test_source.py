@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import io
 import json
 import re
+import tempfile
 import types
 import zipfile
 from pathlib import Path
@@ -91,6 +93,49 @@ def test_each_malformed_variant_fails_its_rule_and_writes_nothing(cfg, tmp_path,
     }
     if kind in expected_words:
         assert expected_words[kind] in str(error.value), str(error.value)
+
+
+@pytest.mark.parametrize("kind", ["extra_column", "bad_quantity", "overlap_mismatch"])
+def test_a_read_that_fails_after_the_extraction_leaves_no_member_and_no_temporary_folder(cfg, tmp_path, malformed, monkeypatch, kind):
+    """R3-windows-handle-cleanup-untested: the member is extracted to a temporary folder of the system that is removed even when the read fails
+    (in the header, V04; in the types, V05; in the shared days, V06). On Windows an unclosed openpyxl row generator keeps the member open and
+    the removal would fail, replacing the rule's error."""
+    from churnrisk import ingest
+
+    system_temp = tmp_path / "system-temp"
+    system_temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(system_temp))
+    extracted: list[Path] = []
+    real_extract = ingest.extract_member
+    monkeypatch.setattr(ingest, "extract_member", lambda *a, **k: extracted.append(real_extract(*a, **k)) or extracted[-1])
+    with pytest.raises(SourceError) as error:
+        fetch_source(local_ctx(cfg, tmp_path / "run", malformed(kind)))
+    assert error.value.rule_id == KIND_RULE[kind]
+    assert len(extracted) == 1 and extracted[0].parent.parent == system_temp, "the member was extracted, inside the system's temporary folder"
+    assert not extracted[0].exists() and list(system_temp.iterdir()) == [], "neither the member nor its folder is left behind"
+
+
+def test_the_source_report_counts_blank_rows_by_sheet_and_names_the_extra_sheets(cfg, tmp_path, tiny_zip):
+    """R3-sourcereport-blank-extra-fields-untested: a variant of the tiny fixture with two blank rows in sheet 1, one in sheet 2 and a third
+    sheet: the blank rows are skipped and counted, the extra sheet is named and not read, and the lines are those of the tiny fixture."""
+    import openpyxl
+
+    with zipfile.ZipFile(tiny_zip) as archive:
+        payload = archive.read(MEMBER)
+    book = openpyxl.load_workbook(io.BytesIO(payload))
+    book["Year 2009-2010"].insert_rows(5, amount=2)
+    book["Year 2010-2011"].insert_rows(3, amount=1)
+    book.create_sheet("Notes")["A1"] = "not part of the source"
+    variant = tmp_path / "variant.xlsx"
+    book.save(variant)
+    plain = extract_member(tiny_zip, MEMBER, cfg.source.max_member_bytes, "", out_dir=tmp_path / "plain")
+    expected, expected_report = read_source(plain, cfg)
+    frame, report = read_source(variant, cfg)
+    assert report.blank_rows == {"Year 2009-2010": 2, "Year 2010-2011": 1} and expected_report.blank_rows == {"Year 2009-2010": 0, "Year 2010-2011": 0}
+    assert report.extra_sheets == ("Notes",) and expected_report.extra_sheets == ()
+    assert report.canonical_lines == expected_report.canonical_lines and report.overlap_rows == expected_report.overlap_rows
+    columns = ["invoice", "stock_code", "quantity", "invoice_ts", "price", "customer_id", "country"]
+    pd.testing.assert_frame_equal(frame[columns], expected[columns])
 
 
 def test_the_member_hash_is_checked_in_http_mode_and_a_refused_member_leaves_nothing(cfg, tmp_path, tiny_zip):

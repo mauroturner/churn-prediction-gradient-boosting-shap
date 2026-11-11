@@ -96,12 +96,15 @@ def distribution_of(module: str) -> str:
 
 def dependency_problems(project: Path) -> list[str]:
     """Every third-party import of ``src/`` must be a direct pin of requirements.txt, and every one of ``tests/`` a direct pin of
-    requirements.txt or of requirements-dev.txt; a module pinned only in a transitive section is documented as what it is not."""
+    requirements.txt or of requirements-dev.txt; a module pinned only in a transitive section is documented as what it is not, and a direct
+    pin of requirements-dev.txt imported by ``src/`` is a development tool that an installation of the runtime alone does not have."""
     runtime = read_pins(project / "requirements.txt")
     dev = read_pins(project / "requirements-dev.txt")
     problems: list[str] = []
-    scopes = (("src", runtime.direct, runtime.transitive | dev.all), ("tests", runtime.direct | dev.direct, runtime.transitive | dev.transitive))
-    for folder, direct, transitive in scopes:
+    transitive = runtime.transitive | dev.transitive
+    # (folder, the pins it may import, the direct pins it may not: only the development tools have them)
+    scopes = (("src", runtime.direct, dev.direct), ("tests", runtime.direct | dev.direct, {}))
+    for folder, direct, development_only in scopes:
         if not (project / folder).is_dir():
             continue
         for module, files in sorted(third_party_imports(project / folder, project).items()):
@@ -109,7 +112,10 @@ def dependency_problems(project: Path) -> list[str]:
             where = ", ".join(sorted(files))
             if dist in direct:
                 continue
-            if dist in transitive:
+            if dist in development_only:
+                problems.append(f"{module} ({dist}) is imported by {where} but is a development-only dependency (a direct pin of requirements-dev.txt), "
+                                "which runtime code cannot import")
+            elif dist in transitive:
                 problems.append(f"{module} ({dist}) is imported by {where} but is pinned only as a transitive dependency")
             else:
                 problems.append(f"{module} ({dist}) is imported by {where} but is not pinned as a direct requirement")
@@ -117,11 +123,15 @@ def dependency_problems(project: Path) -> list[str]:
 
 
 def never_applies(marker: str) -> bool:
-    """A requirement only an extra asks for, or only a Python older than the project's 3.11 (pyproject's requires-python)."""
+    """A requirement only an extra asks for, or only a Python older than the project's 3.11 (pyproject's requires-python): ``< "3.N"`` for
+    N up to 11 and ``<= "3.N"`` for N up to 10, in single or double quotes."""
     if "extra" in marker:
         return True
-    older = re.search(r'python_version\s*<\s*"3\.(\d+)"', marker)
-    return bool(older) and int(older.group(1)) <= 11
+    older = re.search(r"""python_version\s*(<=|<)\s*(['"])3\.(\d+)\2""", marker)
+    if older is None:
+        return False
+    minor = int(older.group(3))
+    return minor <= 11 if older.group(1) == "<" else minor <= 10
 
 
 def required_names(dist: str) -> set[str]:
@@ -157,6 +167,50 @@ def test_every_direct_import_is_a_pinned_requirement_and_documented(tmp_path):
     ]
     # and on the project as it is
     assert dependency_problems(PROJECT) == []
+
+
+def probe_project(tmp_path: Path, files: dict[str, str]) -> Path:
+    """A copy of the project's two requirements files next to the given source files (path relative to the probe -> text)."""
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    for name in ("requirements.txt", "requirements-dev.txt"):
+        shutil.copy(PROJECT / name, probe / name)
+    for relative, text in files.items():
+        (probe / relative).parent.mkdir(parents=True, exist_ok=True)
+        (probe / relative).write_text(text, encoding="utf-8")
+    return probe
+
+
+def test_a_development_only_direct_dependency_imported_by_src_is_reported_as_such(tmp_path):
+    """pytest is a direct pin of requirements-dev.txt: runtime code that imports it is not wrongly told it is pinned as transitive (R3-dep-problems-mislabel)."""
+    probe = probe_project(tmp_path, {"src/churnrisk/uses_pytest.py": "import pytest\nimport numpy\n"})
+    assert dependency_problems(probe) == [
+        "pytest (pytest) is imported by src/churnrisk/uses_pytest.py but is a development-only dependency (a direct pin of "
+        "requirements-dev.txt), which runtime code cannot import"
+    ]
+
+
+def test_the_tests_scope_takes_direct_pins_of_both_files_and_names_the_rest(tmp_path):
+    """The tests scope (R3-missing-coverage-tests-scope): a direct pin of either file passes, a transitive one is named as such and a module
+    no installed distribution provides is reported by its own name (the fallback of distribution_of)."""
+    probe = probe_project(tmp_path, {
+        "tests/test_probe.py": "import numpy\nimport lifetimes\nimport pluggy\nimport no_such_module_xyz\nfrom sklearn import metrics\n",
+    })
+    assert dependency_problems(probe) == [
+        "no_such_module_xyz (no-such-module-xyz) is imported by tests/test_probe.py but is not pinned as a direct requirement",
+        "pluggy (pluggy) is imported by tests/test_probe.py but is pinned only as a transitive dependency",
+    ]
+    assert distribution_of("no_such_module_xyz") == "no-such-module-xyz" and distribution_of("sklearn") == "scikit-learn"
+
+
+@pytest.mark.parametrize(("marker", "never"), [
+    ('python_version < "3.8"', True), ("python_version < '3.8'", True), ('python_version < "3.11"', True), ('python_version < "3.12"', False),
+    ('python_version <= "3.10"', True), ("python_version <= '3.10'", True), ('python_version <= "3.11"', False), ("python_version<='3.12'", False),
+    ('extra == "test"', True), ('platform_system == "Windows"', False),
+])
+def test_a_marker_never_applies_only_to_extras_and_to_pythons_older_than_3_11(marker, never):
+    """Single or double quotes and a strict or inclusive bound (R3-never-applies-brittle): ``<= "3.11"`` still applies to 3.11."""
+    assert never_applies(marker) is never
 
 
 def test_every_pin_is_exact_and_python_dateutil_is_below_3():

@@ -49,9 +49,13 @@ def test_the_real_roles_follow_the_rules_and_the_adjustment_invoices_have_no_cus
     reasons = roles["exclusion_reason"].value_counts().to_dict()
     assert reasons["no_customer"] == 235_287
     assert reasons["service_code"] == 3_663
+    # D51: the lines set aside by their price are the 70 that research counted with project 02's order, and none is set aside by the sign
+    # of its quantity (R3-real-data-price-quantity-counts-unproven)
+    assert reasons["non_positive_price"] == 70
+    assert reasons.get("non_positive_quantity", 0) == 0
     assert reasons.get("gift_voucher", 0) == 0
+    assert roles["role"].value_counts().to_dict() == {"purchase": 788_187, "excluded": 239_020, "cancellation": 17_641}
     adjustments = frame["invoice"].str.startswith("A")
     assert int(adjustments.sum()) == 6
     assert roles.loc[adjustments, "exclusion_reason"].tolist() == ["no_customer"] * 6, "no adjustment line has a customer: V20 sets them aside first"
     assert reasons.get("adjustment_invoice", 0) == 0
-    print("REAL ROLES", roles["role"].value_counts().to_dict(), reasons)

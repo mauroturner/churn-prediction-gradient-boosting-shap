@@ -19,7 +19,6 @@ import pytest
 from churnrisk import ingest
 from churnrisk.ingest import (
     MANIFEST_NAME,
-    STAGING_ATTEMPTS,
     USER_AGENT,
     DownloadDeadlineError,
     DownloadError,
@@ -426,13 +425,15 @@ def test_the_staging_file_is_created_exclusively_under_a_random_name(tmp_path, m
     descriptor, second = ingest._create_staging(tmp_path / "f.zip")
     os.close(descriptor)
     assert first != second and first.parent == tmp_path and first.name.startswith("f.zip.") and first.name.endswith(".staging")
-    monkeypatch.setattr(secrets, "token_hex", lambda n: "fixed")
-    monkeypatch.setattr(ingest, "STAGING_ATTEMPTS", 3)
-    descriptor, _ = ingest._create_staging(tmp_path / "g.zip")
-    os.close(descriptor)
-    with pytest.raises(FileExistsError, match="3 intentos"):
-        ingest._create_staging(tmp_path / "g.zip")
-    assert STAGING_ATTEMPTS == 100
+    default = ingest.STAGING_ATTEMPTS   # the module's own value, read before patching (R3-vacuous-staging-restore-assertion)
+    with monkeypatch.context() as patched:
+        patched.setattr(secrets, "token_hex", lambda n: "fixed")
+        patched.setattr(ingest, "STAGING_ATTEMPTS", 3)
+        descriptor, _ = ingest._create_staging(tmp_path / "g.zip")
+        os.close(descriptor)
+        with pytest.raises(FileExistsError, match="3 intentos"):
+            ingest._create_staging(tmp_path / "g.zip")
+    assert default == 100 and ingest.STAGING_ATTEMPTS == default, "the default is 100 and the patch did not outlive its block"
 
 
 # --- the manifest and the local source's registered hash (RF01, V01) ----------------------------------------------------
