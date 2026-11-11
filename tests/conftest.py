@@ -1,14 +1,26 @@
-"""Shared fixtures and the automatic skipping of the real_data and docker marks."""
+"""Shared fixtures, the automatic skipping of the real_data and docker marks and the fast suite's time limit (plan, section 24.1).
+
+Every expensive state is built once per session and reused (D34): the synthetic fixture in its standard (1,500 customers), small
+(300) and tiny (40) sizes, each malformed variant and each signal variant. A test that writes works on its own copy (``copy_of``).
+"""
 
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+from tests.fixtures.suite_budget import pytest_addoption, pytest_sessionfinish, pytest_sessionstart  # noqa: F401  (the time limit, D34)
+
+pytest_plugins = ["pytester"]
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REAL_ZIP = PROJECT_ROOT / "data" / "raw" / "online_retail_ii.zip"
+STANDARD_CUSTOMERS = 1500
+SMALL_CUSTOMERS = 300
+TINY_CUSTOMERS = 40
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -34,3 +46,90 @@ def cfg():
     from churnrisk.config import load_config
 
     return load_config(PROJECT_ROOT / "config" / "pipeline.toml")
+
+
+# --- the synthetic fixture, its sizes and its variants ---------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def fixture_truth(tmp_path_factory: pytest.TempPathFactory):
+    """The standard synthetic zip (1,500 customers, seed 0, no planted signal) and what it holds."""
+    from tests.fixtures.make_fixture import make_fixture
+
+    return make_fixture(tmp_path_factory.mktemp("fixture") / "online_retail_fixture.zip", n_customers=STANDARD_CUSTOMERS, seed=0)
+
+
+@pytest.fixture(scope="session")
+def fixture_zip(fixture_truth) -> Path:
+    return fixture_truth.path
+
+
+@pytest.fixture(scope="session")
+def small_truth(tmp_path_factory: pytest.TempPathFactory):
+    """A synthetic zip of 300 customers (seed 0) for the tests whose subject is one row, one cell, the download or an error: a defect in
+    one row is found by the same code whatever the size of the rest, and the standard file costs five times as much to write and read."""
+    from tests.fixtures.make_fixture import make_fixture
+
+    return make_fixture(tmp_path_factory.mktemp("small_fixture") / "small_fixture.zip", n_customers=SMALL_CUSTOMERS, seed=0)
+
+
+@pytest.fixture(scope="session")
+def small_zip(small_truth) -> Path:
+    return small_truth.path
+
+
+@pytest.fixture(scope="session")
+def tiny_zip(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A synthetic zip of 40 customers with every dedicated case: the base of the malformed variants, which are opened and saved
+    whole with openpyxl (about 1.5 s each from the small zip, a tenth of that from this one)."""
+    from tests.fixtures.make_fixture import make_fixture
+
+    return make_fixture(tmp_path_factory.mktemp("tiny_fixture") / "tiny_fixture.zip", n_customers=TINY_CUSTOMERS, seed=0).path
+
+
+@pytest.fixture(scope="session")
+def malformed(tmp_path_factory: pytest.TempPathFactory, tiny_zip: Path) -> Callable[[str], Path]:
+    """``malformed(kind)``: the tiny zip damaged in one documented way, each kind built once per session."""
+    from tests.fixtures.make_fixture import make_malformed
+
+    folder = tmp_path_factory.mktemp("malformed")
+    built: dict[str, Path] = {}
+
+    def build(kind: str) -> Path:
+        if kind not in built:
+            built[kind] = make_malformed(tiny_zip, kind, folder / f"{kind}.zip")
+        return built[kind]
+
+    return build
+
+
+@pytest.fixture(scope="session")
+def signal_truth(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], object]:
+    """``signal_truth(signal)``: the standard zip with a planted signal (``irregular_gaps`` or ``rfm_only``), each built once per session."""
+    from tests.fixtures.make_fixture import make_fixture
+
+    folder = tmp_path_factory.mktemp("signals")
+    built: dict[str, object] = {}
+
+    def build(signal: str):
+        if signal not in built:
+            built[signal] = make_fixture(folder / f"{signal}.zip", n_customers=STANDARD_CUSTOMERS, seed=0, signal=signal)
+        return built[signal]
+
+    return build
+
+
+@pytest.fixture
+def copy_of(tmp_path: Path) -> Callable[[Path], Path]:
+    """``copy_of(path)``: a copy of a file or a folder inside this test's ``tmp_path``, for a test that writes."""
+
+    def copy(path: Path) -> Path:
+        target = tmp_path / "copies" / Path(path).name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if Path(path).is_dir():
+            shutil.copytree(path, target)
+        else:
+            shutil.copy2(path, target)
+        return target
+
+    return copy
