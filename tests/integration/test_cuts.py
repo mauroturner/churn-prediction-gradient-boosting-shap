@@ -7,6 +7,7 @@ import hashlib
 import sqlite3
 from datetime import date, timedelta
 
+import pandas as pd
 import pytest
 
 from churnrisk.config import SealedConfig
@@ -122,3 +123,24 @@ def test_a_split_without_its_purge_is_refused_before_anything_is_written(cfg, lo
         build_cuts(conn, date(2011, 7, 31), broken, "r1")
     conn.close()
     assert file_sha(path) == before
+
+
+def test_the_labelled_rows_are_the_features_of_the_closed_windows_with_their_block_and_label(cfg, launched, fixture_truth):
+    """split.labelled_rows, the only reader of labels of the baselines and the model, gives the features of every cut whose window closed by
+    the launch, with its block and its label (the fixture's truth); a block filter keeps only those blocks."""
+    from churnrisk.features import read_features
+    from churnrisk.schema import FEATURE_COLUMNS
+    from churnrisk.split import labelled_rows
+
+    _path, conn = launched
+    view = SealedConfig.of(cfg, SHA)
+    rows = labelled_rows(conn)
+    closed = [c for c in cut_dates(view) if label_end(c, view.label.horizon_days) <= date(2011, 7, 31)]
+    assert sorted(set(rows.index.get_level_values("cut_date"))) == closed
+    assert {c: dict(rows.xs(c, level="cut_date")["churned"]) for c in closed} == {c: fixture_truth.labels[c] for c in closed}
+    assert (rows["block"] == [blocks(view)[c] for c in rows.index.get_level_values("cut_date")]).all()
+    pd.testing.assert_frame_equal(rows[list(FEATURE_COLUMNS)], read_features(conn, closed), check_exact=True)
+    validation = labelled_rows(conn, ["valid_v1", "valid_v2"])
+    assert set(validation["block"]) == {"valid_v1", "valid_v2"} and validation.equals(rows[rows["block"].isin(["valid_v1", "valid_v2"])])
+    with pytest.raises(ValueError, match="bloque desconocido"):
+        labelled_rows(conn, ["validation"])

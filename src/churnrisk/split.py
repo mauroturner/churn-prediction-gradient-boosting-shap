@@ -5,13 +5,23 @@ Blocks, by cut date: ``before`` (before ``train_first``), ``train``, ``purge_1``
 between two blocks of different use needs ``c_before + N <= c_after``: training to V1 and V2 to the test. V1 and V2 are both validation and
 have no purge between them (D08). The window of the last test cut must end inside the data. The configuration checks all this when it is
 loaded (D48); ``check_purges`` checks it again, for any horizon, before the cuts are written (the second line, as project 03's D78).
+
+``labelled_rows`` is the only reader of labels of the baselines and the model (``mart_labelled_rows``, D24), and ``require_both_classes``
+refuses a block of one class before anything learns from it or is measured on it (M07).
 """
 
 from __future__ import annotations
 
+import sqlite3
+from collections.abc import Iterable
 from datetime import date, timedelta
 
+import numpy as np
+import pandas as pd
+
 from churnrisk.config import SealedConfig
+from churnrisk.features import COUNTRY, FLOAT_FEATURES, INTEGER_FEATURES
+from churnrisk.schema import FEATURE_COLUMNS
 
 BLOCKS = ("before", "train", "purge_1", "valid_v1", "valid_v2", "purge_2", "test", "post_test")
 BLOCKS_ES = {
@@ -22,6 +32,24 @@ BLOCKS_ES = {
 
 class PurgeError(ValueError):
     """A boundary between two blocks has no purge of at least N days, or the last test window ends after the data; the message names it."""
+
+
+class BlockLabelError(ValueError):
+    """M07: a block that something learns from or is measured on has the labels of a single class (everyone churned, or nobody): there is
+    nothing to fit, select, calibrate or measure with it (project 03, D65)."""
+
+
+def require_both_classes(y: np.ndarray | pd.Series, block: str) -> None:
+    """``BlockLabelError`` if the labels of `block` are all of one class or there are none: an AUC would be undefined (scikit-learn warns
+    and answers NaN, which passes the tripwire M01), a classifier or a calibrator cannot learn one class and a threshold would be chosen
+    on nothing."""
+    y = np.asarray(y)
+    if y.size == 0:
+        raise BlockLabelError(f"M07: el bloque {block} no tiene filas con etiqueta: no se puede ajustar, elegir, calibrar ni medir con él")
+    if y.min() == y.max():
+        side = "todos se fueron" if y[0] == 1 else "ninguno se fue"
+        raise BlockLabelError(f"M07: el bloque {block} tiene una sola clase de etiqueta ({side}, {y.size} filas): no se puede ajustar, elegir, "
+                              "calibrar ni medir con él; se revisan las fechas de [split] y los datos del bloque (docs/runbook.md, R5)")
 
 
 def block(cut: date, view: SealedConfig) -> str:
@@ -73,3 +101,26 @@ def check_purges(view: SealedConfig, horizon_days: int) -> None:
     if end > view.deliveries.last_date:
         raise PurgeError(f"test_last: la ventana del último corte de prueba ({s.test_last}) termina el {end}, después del fin de los datos "
                          f"({view.deliveries.last_date})")
+
+
+LABELLED_COLUMNS: tuple[str, ...] = ("block", "churned", *FEATURE_COLUMNS)
+
+
+def labelled_rows(conn: sqlite3.Connection, blocks: Iterable[str] | None = None) -> pd.DataFrame:
+    """The labelled rows of the warehouse (``mart_labelled_rows``): index ``(cut_date, customer_id)``, sorted, columns ``block``, ``churned``
+    and the features; every block, or those of `blocks`. The only reader of labels of the baselines and the model (D24)."""
+    wanted = None if blocks is None else sorted(set(blocks))
+    unknown = [b for b in wanted or [] if b not in BLOCKS]
+    if unknown:
+        raise ValueError(f"bloque desconocido: {unknown[0]!r}; se esperaba uno de {', '.join(BLOCKS)}")
+    exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mart_labelled_rows'").fetchone()
+    rows: list[tuple] = []
+    if exists:
+        where = "" if wanted is None else f" WHERE block IN ({', '.join('?' for _ in wanted)})"
+        rows = conn.execute(f"SELECT cut_date, customer_id, {', '.join(LABELLED_COLUMNS)} FROM mart_labelled_rows{where} ORDER BY cut_date, customer_id",
+                            wanted or []).fetchall()
+    frame = pd.DataFrame(rows, columns=["cut_date", "customer_id", *LABELLED_COLUMNS])
+    frame["cut_date"] = [date.fromisoformat(v) for v in frame["cut_date"]]
+    frame = frame.astype({"customer_id": "int64", "block": object, "churned": "int64", **dict.fromkeys(INTEGER_FEATURES, "int64"),
+                          **dict.fromkeys(FLOAT_FEATURES, "float64"), COUNTRY: object})
+    return frame.set_index(["cut_date", "customer_id"])[list(LABELLED_COLUMNS)]

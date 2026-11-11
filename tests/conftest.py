@@ -233,3 +233,36 @@ def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
     frame, report = read_canonical(folder / "interim")
     return result, frame, report
 
+
+REAL_TRAINING_END = "2011-03-01"   # the first validation cut: no line from it on is read by a real_data test before U29 (D19)
+
+
+@pytest.fixture(scope="session")
+def real_training(real_canonical, cfg):
+    """``(purchases, cancellations, rows)``: the real netting inputs dated before 2011-03-01, so that no line of a validation or test window
+    is used (D19), and the rows of the seven training cuts with their features (index ``(cut_date, customer_id)``) and their label, built
+    once per session with the project's own functions (mark real_data only)."""
+    from datetime import date
+
+    import pandas as pd
+
+    from churnrisk.config import SealedConfig
+    from churnrisk.cuts import label, label_end, population
+    from churnrisk.features import compute_features, known_before
+    from churnrisk.netting import customer_days, net_cancellations, netting_inputs
+    from churnrisk.split import blocks
+
+    _result, frame, _report = real_canonical
+    view = SealedConfig.of(cfg, cfg.source.accepted_sha256)
+    purchases, cancellations = netting_inputs(frame[frame["invoice_date"] < pd.Timestamp(REAL_TRAINING_END)].reset_index(drop=True))
+    n = view.label.horizon_days
+    parts = []
+    for cut in [c for c, b in blocks(view).items() if b == "train"]:
+        assert label_end(cut, n) < date.fromisoformat(REAL_TRAINING_END), "the window of a training cut closes before the first validation cut"
+        days, lines = known_before(purchases, cancellations, cut)
+        members = population(days, cut, view.label.active_days)
+        features = compute_features(days, lines, cut, members, view)
+        churned = label(customer_days(net_cancellations(purchases, cancellations, label_end(cut, n)).net_lines), cut, n, members)
+        parts.append(features.assign(churned=churned, cut_date=cut).set_index("cut_date", append=True).swaplevel())
+    return purchases, cancellations, pd.concat(parts)
+

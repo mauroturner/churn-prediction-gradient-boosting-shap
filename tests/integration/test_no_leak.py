@@ -15,6 +15,7 @@ from churnrisk.features import compute_features, known_before, read_features
 from churnrisk.netting import netting_inputs
 from churnrisk.schema import FEATURE_COLUMNS
 from churnrisk.warehouse import connect, load_delivery
+from tests.fixtures.perturb import perturbed
 
 SHA = "d" * 64
 
@@ -40,27 +41,6 @@ def test_features_at_a_cut_equal_those_from_data_truncated_the_day_before(cfg, c
         days, lines = known_before(purchases, cancellations, cut)
         expected = compute_features(days, lines, cut, population(days, cut, view.label.active_days), view)
         pd.testing.assert_frame_equal(stored.xs(cut, level="cut_date"), expected, check_exact=True, obj=str(cut))
-
-
-def perturbed(lines: pd.DataFrame, cut: date, customers: list[int]) -> pd.DataFrame:
-    """The launch's lines with every line dated from `cut` on deleted (a third), changed (a third: twice the units at 1.5 times the price)
-    or kept, plus, for each of `customers`, a cancellation on the cut day of everything it bought of its last product before the cut and a
-    large purchase on that day: if anything after the cut reached a feature of the cut, these would."""
-    after = lines["invoice_date"] >= pd.Timestamp(cut)
-    kept = lines[~(after & (lines["line_id"] % 3 == 0))].copy()
-    change = (kept["invoice_date"] >= pd.Timestamp(cut)) & (kept["line_id"] % 3 == 1)
-    kept.loc[change, "quantity"] = kept.loc[change, "quantity"] * 2
-    kept.loc[change, "price"] = kept.loc[change, "price"] * 1.5
-    added = []
-    before = lines[~after & lines["customer_id"].isin(customers) & (lines["quantity"] > 0) & ~lines["invoice"].str.startswith("C")]
-    for i, (customer, group) in enumerate(before.sort_values(["invoice_ts", "line_id"]).groupby("customer_id")):
-        last = group.iloc[-1]
-        when = pd.Timestamp(cut) + pd.Timedelta(minutes=i)
-        for k, (invoice, quantity, code) in enumerate(((f"C{9_000_000 + i}", -int(group.loc[group["stock_code"] == last["stock_code"], "quantity"].sum()),
-                                                        last["stock_code"]), (str(9_100_000 + i), 999, last["stock_code"]))):
-            added.append({**last.to_dict(), "line_id": 30_000_000 + 2 * i + k, "source_row": 900_000 + 2 * i + k, "invoice": invoice,
-                          "quantity": quantity, "stock_code": code, "invoice_ts": when, "invoice_date": when.normalize(), "is_repeated_line": False})
-    return pd.concat([kept, pd.DataFrame(added)[list(lines.columns)].astype(lines.dtypes.to_dict())], ignore_index=True)
 
 
 def test_lines_and_cancellations_from_the_cut_on_change_nothing_at_that_date(cfg, canonical, loaded_masters, copy_of, tmp_path):
