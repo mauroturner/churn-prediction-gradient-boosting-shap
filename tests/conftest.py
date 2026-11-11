@@ -142,3 +142,23 @@ def canonical(tmp_path_factory: pytest.TempPathFactory, fixture_zip: Path, cfg):
 
     xlsx = extract_member(fixture_zip, cfg.source.member, cfg.source.max_member_bytes, "", out_dir=tmp_path_factory.mktemp("canonical"))
     return read_source(xlsx, cfg)
+
+
+@pytest.fixture(scope="session")
+def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
+    """``(fetch result, frame, report)``: the real canonical lines, built once per session from a copy of the pinned zip in a folder of the
+    session's own (mark real_data only; the zip is never downloaded again). Reading the real workbook takes about 40 s, so every real_data
+    test shares this one read."""
+    import dataclasses
+    import types
+
+    from churnrisk.ingest import fetch_source, read_canonical
+
+    folder = tmp_path_factory.mktemp("real")
+    (folder / "raw").mkdir()
+    shutil.copyfile(REAL_ZIP, folder / "raw" / REAL_ZIP.name)
+    paths = dataclasses.replace(cfg.paths, raw_dir=folder / "raw", interim_dir=folder / "interim")
+    result = fetch_source(types.SimpleNamespace(cfg=dataclasses.replace(cfg, paths=paths)))
+    frame, report = read_canonical(folder / "interim")
+    return result, frame, report
+
