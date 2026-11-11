@@ -163,3 +163,18 @@ def cancellation_outcomes(cancellations: pd.DataFrame, result: NettingResult, as
     frame.loc[frame["unmatched"] == 0, "outcome"] = "complete"
     frame.loc[frame["matched"] == 0, "outcome"] = "unmatched"
     return frame[OUTCOME_COLUMNS].sort_values("cancel_line_id").reset_index(drop=True)
+
+
+def known_netting_inputs(conn, as_of: date) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The purchases and the cancellations loaded in the warehouse (``raw_lines``) and dated on or before `as_of`: whatever the warehouse holds
+    since, a calculation for a date gets what was known on it (RNF06 b). The lines are read with the validation's reader of ``raw_lines``."""
+    from churnrisk.validate import known_lines   # here, not at the top: the validation imports this module
+
+    lines = known_lines(conn)
+    return netting_inputs(lines[lines["invoice_date"] <= pd.Timestamp(as_of)].reset_index(drop=True))
+
+
+def net_lines_at(conn, as_of: date) -> pd.DataFrame:
+    """The net lines known on `as_of` (plan, section 8), whatever the warehouse holds since."""
+    purchases, cancellations = known_netting_inputs(conn, as_of)
+    return net_cancellations(purchases, cancellations, as_of).net_lines

@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS raw_lines (
 );
 
 CREATE INDEX IF NOT EXISTS raw_lines_by_date ON raw_lines (invoice_date);
+-- the control of the cuts chk_population_bought_in_m_days looks for a purchase of each customer of a population in the M days before its cut
+CREATE INDEX IF NOT EXISTS raw_lines_by_customer ON raw_lines (customer_id, invoice_date);
 
 CREATE TABLE IF NOT EXISTS pipeline_runs (
     run_key TEXT PRIMARY KEY,
