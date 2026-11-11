@@ -133,3 +133,12 @@ def copy_of(tmp_path: Path) -> Callable[[Path], Path]:
         return target
 
     return copy
+
+
+@pytest.fixture(scope="session")
+def canonical(tmp_path_factory: pytest.TempPathFactory, fixture_zip: Path, cfg):
+    """``(frame, report)``: the standard fixture's workbook read once into its canonical lines (reading an .xlsx is the slowest step, D34)."""
+    from churnrisk.ingest import extract_member, read_source
+
+    xlsx = extract_member(fixture_zip, cfg.source.member, cfg.source.max_member_bytes, "", out_dir=tmp_path_factory.mktemp("canonical"))
+    return read_source(xlsx, cfg)
