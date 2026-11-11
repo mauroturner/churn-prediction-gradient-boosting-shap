@@ -104,6 +104,40 @@ def malformed(tmp_path_factory: pytest.TempPathFactory, tiny_zip: Path) -> Calla
 
 
 @pytest.fixture(scope="session")
+def rejection(tmp_path_factory: pytest.TempPathFactory, malformed: Callable[[str], Path], tiny_zip: Path, cfg) -> Callable[[str], object]:
+    """``rejection(kind)``: the ``SourceError`` of the first task on a malformed variant in local mode, each read once per session, for the
+    tests that only look at the error (plan 24.1; project 03, D76). The tests that check that a rejection writes nothing run their own."""
+    import dataclasses
+    import hashlib
+    import types
+
+    from churnrisk.ingest import MANIFEST_NAME, SourceManifest, fetch_source, write_source_manifest
+    from churnrisk.schema import SourceError
+
+    folder = tmp_path_factory.mktemp("rejections")
+    seen: dict[str, object] = {}
+
+    def read(kind: str):
+        if kind not in seen:
+            run = folder / kind
+            paths = dataclasses.replace(cfg.paths, raw_dir=run / "raw", interim_dir=run / "interim")
+            source = dataclasses.replace(cfg.source, mode="local", url="", accepted_sha256="", member_sha256="", local_path=malformed(kind))
+            if kind == "wrong_hash":   # a local source whose first hash was registered: another one is V01
+                registered = SourceManifest("local", str(tiny_zip), hashlib.sha256(tiny_zip.read_bytes()).hexdigest(), tiny_zip.stat().st_size,
+                                            "2026-11-11T10:00:00+00:00", str(tiny_zip))
+                write_source_manifest(run / "raw" / MANIFEST_NAME, registered)
+            try:
+                fetch_source(types.SimpleNamespace(cfg=dataclasses.replace(cfg, paths=paths, source=source)))
+            except SourceError as error:
+                seen[kind] = error
+            else:  # pragma: no cover - every source variant is rejected
+                raise AssertionError(f"the variant {kind} was not rejected")
+        return seen[kind]
+
+    return read
+
+
+@pytest.fixture(scope="session")
 def signal_truth(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], object]:
     """``signal_truth(signal)``: the standard zip with a planted signal (``irregular_gaps`` or ``rfm_only``), each built once per session."""
     from tests.fixtures.make_fixture import make_fixture
