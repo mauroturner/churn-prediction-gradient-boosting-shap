@@ -385,6 +385,29 @@ def quick_replay(tmp_path_factory: pytest.TempPathFactory, pipeline_states: dict
 
 
 @pytest.fixture(scope="session")
+def replay_states(tmp_path_factory: pytest.TempPathFactory, quick_replay):
+    """The rest of the documented quick replay, once per session, from a copy of the quick project the session's ``quick_replay`` left (the
+    launch and ``M2011-08`` closed): ``replay --until M2011-10``, a copy of its ``data/quick`` as ``before_test`` (the seal still without its
+    test part, ``M2011-11`` pending: the run that evaluates the test), then ``replay`` to the end (``M2011-11`` writes the test part,
+    ``C2011-12`` closes) and a ``run`` with no delivery left. Each command runs in this process from an empty folder that is not the project;
+    ``results`` keeps their exit codes and what they wrote to stdout and stderr. A test that writes works on a copy (D34)."""
+    from tests.fixtures.cli_helpers import QUICK_CONFIG, at_home, cli
+
+    base = tmp_path_factory.mktemp("replay_states")
+    home, elsewhere = base / "clone", base / "elsewhere"
+    shutil.copytree(quick_replay.home, home)
+    elsewhere.mkdir()
+    before_test = base / "before_test"
+    results = []
+    with at_home(home, elsewhere):
+        results.append(cli("replay", "--config", QUICK_CONFIG, "--until", "M2011-10"))
+        shutil.copytree(home / "data" / "quick", before_test)
+        results.append(cli("replay", "--config", QUICK_CONFIG))
+        results.append(cli("run", "--config", QUICK_CONFIG))
+    return types.SimpleNamespace(home=home, quick=home / "data" / "quick", before_test=before_test, elsewhere=elsewhere, results=results)
+
+
+@pytest.fixture(scope="session")
 def star_files(tmp_path_factory: pytest.TempPathFactory, quick_history):
     """``(cfg, out_dir, private_dir, paths, meta, warehouse)``: the star model of the quick history's last run, exported once per session on a
     copy of its warehouse (D72). The star model's contract, the HTML design and the site export read it; a test that writes copies it."""

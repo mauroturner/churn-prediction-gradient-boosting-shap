@@ -10,8 +10,9 @@ with their counter, or the whole traceback if it failed) and, from ``load`` on, 
 - **Refusals before writing** (``RunRefusedError``, exit 2, no retry), in this order: any task of a run that ended (``ok`` or ``no_delivery``);
   ``deliver`` in a run that already holds another delivery; ``load`` when another run loaded the delivery, and every task after ``load`` unless
   this run loaded its own delivery (project 03, D86); ``load`` without this run's validation report in ``reports/validation/history`` or with a
-  blocking rule failing in it (D93); and the model tasks (``fit_model``, ``score``, ``track``, ``evaluate``) when the run's delivery is not the
-  latest loaded one.
+  blocking rule failing in it (D93); the model tasks (``fit_model``, ``score``, ``track``, ``evaluate``) when the run's delivery is not the
+  latest loaded one; and, while the seal has no test part, every task of a run that would evaluate the test under a configuration that is not
+  the sealed one (D89). A new run's state file is written only once its first task passed them all.
 - **The close.** The run stays ``running`` until ``report`` closes it in this order: SQLite ``ok``, ``dim_pipeline_run.parquet`` alone,
   ``summary.json`` and the site manifest, the HTML, and only then the delivery ``loaded`` in the delivery manifest (project 03, D72). Closing
   never creates a run's row: it is ``load``'s.
@@ -45,8 +46,8 @@ from churnrisk.files import write_atomic
 from churnrisk.launch import fit_model as fit_frozen_model
 from churnrisk.launch import load_registered
 from churnrisk.lock import RunLockedError, RunRefusedError, RunStateError, sole_writer
-from churnrisk.registry import sealed_view
-from churnrisk.reporting import build_summary, write_summary
+from churnrisk.registry import SealError, config_fingerprint, differing_keys, read_seal, sealed_document, sealed_view
+from churnrisk.reporting import build_summary, test_ready_date, write_summary
 from churnrisk.reporting import evaluate as evaluate_model
 from churnrisk.schema import SourceError
 from churnrisk.scoring import RunMeta, score_cut
@@ -132,13 +133,19 @@ def _write_state(path: Path, state: dict) -> None:
 
 
 def _context(cfg: PipelineConfig, run_id: str | None, when: datetime) -> RunContext:
+    """The run `run_id` (a new one at `when` if it has no state file yet). Nothing is written here: a new run's state file is created by its
+    first task once that task passed every refusal (``_open``), so a refused run leaves nothing behind."""
     run_key = make_run_key(run_id if run_id is not None else when)
     path = _state_path(cfg, run_key)
     state = _read_state(path)
-    if not state:
-        state = {"run_key": run_key, "started_at": when.isoformat(timespec="seconds"), "status": "running", "tasks": {}}
-        _write_state(path, state)
-    return RunContext(cfg, run_key, datetime.fromisoformat(state["started_at"]), path)
+    started = datetime.fromisoformat(state["started_at"]) if state else when.replace(microsecond=0)
+    return RunContext(cfg, run_key, started, path)
+
+
+def _open(ctx: RunContext) -> None:
+    """Create the state file of a new run (``running``, no task yet); a run that has one keeps it as it is."""
+    if not ctx.state_path.exists():
+        _write_state(ctx.state_path, {"run_key": ctx.run_key, "started_at": ctx.started_at.isoformat(timespec="seconds"), "status": "running", "tasks": {}})
 
 
 def _task_result(ctx: RunContext, task_id: str) -> dict:
@@ -659,6 +666,47 @@ def _refuse_an_older_date(spec: TaskSpec, ctx: RunContext) -> None:
                               f"{latest}: {spec.task_id} calcula la última fecha y no corre en esta corrida")
 
 
+def _refuse_a_test_evaluation_under_another_configuration(spec: TaskSpec, ctx: RunContext) -> None:
+    """A1 of the independent evaluation (plan, section 15; D89): while the seal has its launch part and no test part, every task of a run whose
+    calculation date closes the test windows (``evaluate`` would evaluate the test) is refused when this configuration's fingerprint is not the
+    sealed launch's. The test is touched once, with the sealed configuration; after the test part exists another configuration is post_seal,
+    as before. The run's date is that of the delivery it holds or, before ``deliver``, of the next pending one; the source's hash is the one
+    this run fetched or, before ``fetch_source``, the sealed launch's. A seal that cannot be read is left to the tasks that read it."""
+    cfg = ctx.cfg
+    try:
+        seal = read_seal(cfg.paths.seal)
+    except SealError:
+        return
+    if seal is None or seal.get("test") is not None:
+        return
+    state = _read_state(ctx.state_path)
+    held = state.get("tasks", {}).get("deliver") or {}
+    if held:
+        if not held.get("delivered"):
+            return
+        delivery_id, as_of = held["delivery_id"], date.fromisoformat(held["as_of"])
+    else:
+        pending = next_pending(_manifest_path(cfg), delivery_plan(cfg))
+        if pending is None:
+            return
+        delivery_id, as_of = pending.delivery_id, pending.as_of
+    if as_of < test_ready_date(cfg):
+        return
+    launch = seal["launch"]
+    source_sha256 = (state.get("tasks", {}).get("fetch_source") or {}).get("sha256") or launch["source_sha256"]
+    view = sealed_view(cfg, source_sha256)
+    current = config_fingerprint(view)
+    if current == launch["config_sha256"]:
+        return
+    keys = differing_keys(launch["sealed_config"], sealed_document(view))
+    named = (f"{'difiere' if len(keys) == 1 else 'difieren'} {', '.join(keys[:6])}{' y otras' if len(keys) > 6 else ''}" if keys
+             else "no se pudo nombrar la clave que difiere")
+    raise RunRefusedError(f"la corrida {ctx.run_key} evaluaría la prueba (entrega {delivery_id}, cálculo al {as_of.isoformat()}) con una configuración "
+                          f"que no es la sellada: su huella empieza por {current[:12]} y la del lanzamiento sellado por {launch['config_sha256'][:12]} "
+                          f"({named}). Mientras el sello no tenga la parte de la prueba, la prueba se evalúa solo con la configuración sellada; "
+                          f"{spec.task_id} no corre (docs/runbook.md, R13). No se escribió nada.")
+
+
 def _reopen(ctx: RunContext) -> None:
     state = _read_state(ctx.state_path)
     if state.get("status") != "failed":
@@ -699,7 +747,9 @@ def _run_spec(spec: TaskSpec, ctx: RunContext) -> dict:
     _refuse_a_delivery_this_run_did_not_load(spec, ctx)
     _refuse_a_load_its_validation_did_not_pass(spec, ctx)
     _refuse_an_older_date(spec, ctx)
+    _refuse_a_test_evaluation_under_another_configuration(spec, ctx)
     started = time.perf_counter()
+    _open(ctx)
     _reopen(ctx)
     try:
         result = spec.func(ctx)

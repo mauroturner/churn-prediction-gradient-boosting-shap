@@ -243,6 +243,46 @@ def test_a_second_delivery_in_the_same_run_is_refused(quick_replay, small_zip, t
     assert fingerprint(folder.root) == before
 
 
+def test_a_run_that_would_evaluate_the_test_under_another_configuration_is_refused_before_writing(replay_states, small_zip, tmp_path):
+    """A1 of the independent evaluation: while the seal has no test part, a run whose calculation date closes the test windows (here
+    ``M2011-11``) under a configuration whose fingerprint is not the sealed launch's (another offer cost) is refused with exit 2 before
+    anything is written, naming both fingerprints and the key that differs; it used to run as post_seal and let a later run with the sealed
+    configuration write the test part at another date. The same run with the sealed configuration is not refused, and the replay writes the
+    test part as before: once, by ``M2011-11``, at its date."""
+    from churnrisk.deliveries import delivery_plan, next_pending
+    from churnrisk.registry import config_fingerprint, read_seal, sealed_view
+
+    root = tmp_path / "quick"
+    shutil.copytree(replay_states.before_test, root)
+    sealed = config_for(root, small_zip)
+    other = dataclasses.replace(sealed, costs=dataclasses.replace(sealed.costs, offer_cost=8.0))
+    seal = read_seal(sealed.paths.seal)
+    assert "test" not in seal and next_pending(pipeline._manifest_path(sealed), delivery_plan(sealed)).delivery_id == "M2011-11"
+    launch_sha = seal["launch"]["config_sha256"]
+    other_sha = config_fingerprint(sealed_view(other, seal["launch"]["source_sha256"]))
+    assert other_sha != launch_sha
+    before = fingerprint(root)
+    for call in (lambda: run_all(other), lambda: run_task("fetch_source", None, other), lambda: pipeline.replay(other)):
+        with pytest.raises(RunRefusedError, match="evaluaría la prueba") as error:
+            call()
+        assert error.value.exit_code == 2
+        assert other_sha[:12] in str(error.value) and launch_sha[:12] in str(error.value) and "costs.offer_cost" in str(error.value)
+        assert fingerprint(root) == before, "nothing is written, not even the state file of a new run"
+    # the sealed configuration takes the delivery; once the run holds it, its next tasks under the other configuration are refused all the
+    # same, by the delivery it holds (the later ones meet the earlier refusals first: not validated, not loaded)
+    run_all(sealed, only=["fetch_source", "deliver"], run_key="M11")
+    assert state_of(Folder(root, sealed), "M11")["tasks"]["deliver"]["delivery_id"] == "M2011-11"
+    held = fingerprint(root)
+    for task_id in ("deliver", "validate"):
+        with pytest.raises(RunRefusedError, match=r"la corrida M11 evaluaría la prueba \(entrega M2011-11, cálculo al 2011-11-30\)"):
+            run_task(task_id, "M11", other)
+    assert fingerprint(root) == held
+    # the session's replay, with the sealed configuration all along: M2011-11 wrote the test part at its own date, and nothing rewrote it
+    assert [r.code for r in replay_states.results] == [0, 0, 0], [r.err for r in replay_states.results]
+    test = read_seal(Path(replay_states.quick) / "reports" / "model_seal.json")["test"]
+    assert (test["as_of"], test["config_sha256"]) == ("2011-11-30", launch_sha)
+
+
 def test_unknown_tasks_and_incompatible_selections_are_usage_errors_before_writing(copy_state):
     folder = copy_state("launch")
     before = fingerprint(folder.root)
