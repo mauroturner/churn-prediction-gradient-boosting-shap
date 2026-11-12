@@ -205,14 +205,19 @@ def _cards(data: _Data) -> dict:
     tracking = data.t["fact_tracking"]
     last_as_of = tracking["as_of_key"].max() if len(tracking) else None
     returned = tracking[tracking["as_of_key"] == last_as_of]["returned"].sum() if len(tracking) else None
+
+    def sized(n: int, make) -> str:
+        """The card `make()` draws, or a dash when the customers it aggregates (`n`) are fewer than the minimum cell (D26)."""
+        return _card(HIDDEN, f"menos de {data.min_cell} clientes") if data.hidden(n) else make()
+
     return {
-        "[Clientes puntuados]": lambda: _card(_int(len(last)), cut),
-        "[Contactos (umbral sellado)]": lambda: _card(_int(int(last["is_contact"].sum()) if len(last) else 0), f"umbral {_dec(None if model is None else model['threshold'], 2)}"),
-        "[Riesgo medio]": lambda: _card(_pct(last["risk"].mean() if len(last) else None), cut),
-        "[Bajas esperadas]": lambda: _card(_fmt(last["risk"].sum() if len(last) else None), "suma de los riesgos"),
+        "[Clientes puntuados]": lambda: sized(len(last), lambda: _card(_int(len(last)), cut)),
+        "[Contactos (umbral sellado)]": lambda: sized(int(last["is_contact"].sum()), lambda: _card(_int(int(last["is_contact"].sum())), f"umbral {_dec(None if model is None else model['threshold'], 2)}")),
+        "[Riesgo medio]": lambda: sized(len(last), lambda: _card(_pct(last["risk"].mean() if len(last) else None), cut)),
+        "[Bajas esperadas]": lambda: sized(len(last), lambda: _card(_fmt(last["risk"].sum() if len(last) else None), "suma de los riesgos")),
         "[Punto de equilibrio del panel]": lambda: _card(_dec(break_even), "con los valores por defecto (supuestos)"),
-        "[Contactos con el panel]": lambda: _card(_int(len(panel)), cut),
-        "[Beneficio esperado con el panel (u.)]": lambda: _card(_fmt(benefit), "u. genéricas, supuestos"),
+        "[Contactos con el panel]": lambda: sized(len(panel), lambda: _card(_int(len(panel)), cut)),
+        "[Beneficio esperado con el panel (u.)]": lambda: sized(len(panel), lambda: _card(_fmt(benefit), "u. genéricas, supuestos")),
         "[Volvieron (seguimiento)]": lambda: _card(_int(returned), "en la última fecha de cálculo"),
         "[Última fecha de cálculo]": lambda: _card(str(ok["as_of_date"].max()) if len(ok) else HIDDEN, "corridas terminadas bien"),
         "dim_pipeline_run[status]": lambda: _card(HIDDEN if latest is None else str(latest["status"]), "" if latest is None else str(latest["run_key"])),
@@ -311,7 +316,7 @@ def _definition(data: _Data) -> str:
     if frame.empty:
         return _table_html(["Sin datos"], [])
     ns, ms = sorted(frame["n"].unique()), sorted(frame["m"].unique())
-    rate = {(n, m): r for n, m, r in zip(frame["n"], frame["m"], frame["churn_rate"], strict=True)}
+    rate = {(n, m): None if pd.isna(k) or data.hidden(k) else r for n, m, r, k in zip(frame["n"], frame["m"], frame["churn_rate"], frame["rows"], strict=True)}
     return _table_html(["N \\ M", *[str(m) for m in ms]], [[str(n), *[_pct(rate.get((n, m))) for m in ms]] for n in ns], set(range(1, len(ms) + 1)))
 
 

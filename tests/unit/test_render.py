@@ -133,6 +133,44 @@ def test_the_cards_of_page_1_are_the_figures_of_the_last_scored_cut(design, star
     assert card("Contactos con el panel") == str(int((last["risk"] >= 0.5).sum())), "the panel starts at the sealed break-even, 0.5"
 
 
+def _rendered(star_files, folder: Path, min_cell: int) -> str:
+    _cfg, out_dir, private_dir, _paths, meta, _w = star_files
+    return render_design(MODEL, out_dir, private_dir, folder / "min.html", meta, min_cell_customers=min_cell).read_text(encoding="utf-8")
+
+
+def _block(html: str, title: str) -> str:
+    return html.split(f'aria-label="{html_lib.escape(title)}"', 1)[1].split("</section>", 1)[0]
+
+
+def test_previews_that_group_the_private_fact_show_a_dash_under_the_minimum_cell(star_files, tmp_path):
+    """D26: a card computed from fewer customers than `min_cell_customers` shows a dash and never its figure; at or above the minimum it shows
+    it. The last cut of the quick history has 599 customers, 55 contacts and 100 with the panel (the fixture's own numbers)."""
+    _cfg, _out, private_dir, _paths, _meta, _w = star_files
+    customers = pd.read_parquet(private_dir / "fact_customer_cut.parquet")
+    last = customers[customers["cut_key"] == customers["cut_key"].max()]
+    assert (len(last), int(last["is_contact"].sum()), int((last["risk"] >= 0.5).sum())) == (599, 55, 100)
+    titles = ("Clientes puntuados", "Contactos (umbral sellado)", "Riesgo medio", "Bajas esperadas", "Contactos con el panel", "Beneficio esperado con el panel (u.)")
+
+    def bigs(html: str) -> list[str]:
+        return [html_lib.unescape(re.search(r'<div class="big">([^<]*)</div>', _block(html, t)).group(1)) for t in titles]
+
+    middle = bigs(_rendered(star_files, tmp_path / "a", 60))          # 55 contacts are under 60, the 100 of the panel and the 599 are not
+    assert middle[1] == "—" and middle[0] == "599" and middle[4] == "100" and "—" not in (middle[0], middle[2], middle[3], middle[4], middle[5])
+    html = _rendered(star_files, tmp_path / "b", 700)                  # every group is under 700
+    assert bigs(html) == ["—"] * 6
+    assert f"{last['risk'].mean() * 100:.1f} %".replace(".", ",") not in html and "599" not in text_of(_block(html, "Clientes puntuados"))
+    assert "menos de 700 clientes" in html
+
+
+def test_a_cell_of_the_matrix_under_the_minimum_shows_a_dash(star_files, tmp_path):
+    """The N x M matrix reads the rows each rate was computed from: with 4.021 rows for M = 90 and 4.996 for M = 180, a minimum of 4.500 hides
+    the first column and keeps the second."""
+    html = _rendered(star_files, tmp_path, 4500)
+    rows = re.findall(r"<tr>((?:<td[^>]*>[^<]*</td>)+)</tr>", _block(html, "Tasa de bajas por N y M"))
+    cells = [re.findall(r"<td[^>]*>([^<]*)</td>", r) for r in rows]
+    assert [c[1] for c in cells] == ["—"] * 3 and all(c[2] != "—" for c in cells), cells
+
+
 def test_a_minimum_cell_that_is_not_a_positive_integer_and_an_incoherent_model_write_nothing(star_files, tmp_path):
     _cfg, out_dir, private_dir, _paths, meta, _w = star_files
     for bad in (0, -1, 2.5, True):
