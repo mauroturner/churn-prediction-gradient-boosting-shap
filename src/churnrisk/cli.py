@@ -77,7 +77,7 @@ def build_parser(task_ids: tuple[str, ...] | None = None) -> argparse.ArgumentPa
                          help="irregular_gaps: la baja depende de lo irregular de las compras (control positivo); rfm_only: solo de RFM (control negativo)")
 
     commands.add_parser("figures", parents=[common], help="dibuja las siete figuras de la documentación desde los archivos del sitio verificados de la última corrida")
-    commands.add_parser("docs-sync", parents=[common], help="copia el resumen de resultados (reports/evaluation_summary.md) en el bloque de resultados del README")
+    commands.add_parser("docs-sync", parents=[common], help="copia el resumen de resultados (reports/evaluation_summary.md) en el bloque de resultados del README, con sus títulos un nivel más abajo")
     return parser
 
 
@@ -155,7 +155,7 @@ def _make_fixture(args: argparse.Namespace) -> int:
 
 
 def _docs_sync(cfg) -> int:
-    from churnrisk.reporting import RESULTS_END, RESULTS_START, sync_block
+    from churnrisk.docs_sync import sync_readme
 
     summary = Path(cfg.paths.reports_dir) / SUMMARY_MD
     readme = Path(cfg.paths.readme)
@@ -164,7 +164,7 @@ def _docs_sync(cfg) -> int:
                           f"tiene README, y su resumen queda en {summary}. No se escribió nada.")
     if not summary.is_file():
         raise _UsageError(f"no existe {summary}: corra la tarea report antes de docs-sync. No se escribió nada.")
-    changed = sync_block(readme, RESULTS_START, RESULTS_END, summary.read_text(encoding="utf-8"))
+    changed = sync_readme(readme, summary)   # the summary's headings one level down, under the README's own (D87)
     _say(f"{readme.name} actualizado" if changed else f"{readme.name} ya estaba al día")
     return EXIT_OK
 
