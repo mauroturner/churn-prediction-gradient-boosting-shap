@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import sqlite3
 
 import pytest
@@ -41,6 +42,49 @@ def test_unfavourable_summary_says_no_supera(cfg, tmp_path):
     assert "supera a RFM en AUC" not in text.replace("no supera a RFM en AUC", "")
     json_path, md_path = write_summary(summary, tmp_path / "reports")
     assert json.loads(json_path.read_text(encoding="utf-8")) == summary and md_path.read_text(encoding="utf-8") == text
+
+
+def _cells(line: str) -> int:
+    """The cells of a Markdown table row: its pipes that are not escaped, minus one."""
+    return len(re.findall(r"(?<!\\)\|", line)) - 1
+
+
+def criterion_rows(text: str) -> list[str]:
+    return [line for line in text.splitlines() if re.match(r"\| C\d\d ", line)]
+
+
+def test_every_criterion_row_of_the_summary_has_the_cells_of_its_header(cfg):
+    """A4 of the independent evaluation (``U31/resumen-C07-barras``): C07's threshold says «|sesgo|», and its unescaped pipes split the row into
+    more cells than the header has, in the summary and in the README block copied from it. Every pipe inside a cell is escaped, so every
+    criterion row has the five cells of the header; the data keep the text as it is."""
+    from churnrisk.docs_sync import readme_block
+
+    summary = sealed_summary(cfg, losing_metrics())
+    assert "|sesgo|" in next(c["threshold_es"] for c in summary["criteria"] if c["criterion_id"] == "C07")
+    for text in (summary_markdown(summary), readme_block(summary_markdown(summary))):
+        header = next(line for line in text.splitlines() if line.startswith("| Criterio |"))
+        rows = criterion_rows(text)
+        assert [r.split(" ")[1] for r in rows] == [f"C{i:02d}" for i in range(1, 11)]
+        assert _cells(header) == 5 and [_cells(r) for r in rows] == [5] * 10, [r for r in rows if _cells(r) != 5]
+        assert r"\|sesgo\|" in next(r for r in rows if r.startswith("| C07 "))
+
+
+def test_the_c09_verdict_says_at_how_many_break_even_points_the_model_keeps_the_benefit_and_at_how_many_it_does_not(cfg):
+    """A5: «no deja al menos el beneficio … en 9 de los 17» reads as 9 failures, and 9 is where the model keeps the benefit of B*. The row of the
+    summary adds, from the same sealed numbers, where it keeps it and where it does not; the sealed verdict, its number and «no» stay."""
+    metrics = losing_metrics()
+    metrics["cost_sensitivity"] = {k: (100.0 if k.endswith(".b_star") or i < 9 * 2 else 99.0) for i, k in enumerate(metrics["cost_sensitivity"])}
+    summary = sealed_summary(cfg, metrics)
+    c09 = next(c for c in summary["criteria"] if c["criterion_id"] == "C09")
+    assert (c09["value"], c09["baseline_value"], c09["passed"]) == (9.0, 17.0, False)
+    sealed = "El modelo no deja al menos el beneficio de la base más fuerte en cada punto de equilibrio: en 9 de los 17 de 0,10 a 0,90."
+    assert c09["verdict_es"] == sealed, "the verdict that is sealed does not change"
+    rows = criterion_rows(summary_markdown(summary))
+    assert [r.split(" ")[1] for r in rows if "Es decir" in r] == ["C09"], "only C09 counts its points; every other verdict is the sealed one"
+    [row] = [r for r in rows if r.startswith("| C09 ")]
+    assert row.endswith(f"| 9,000 | no | {sealed} Es decir: lo deja en 9 de los 17 puntos de equilibrio y no lo deja en 8. |")
+    one = next(r for r in criterion_rows(summary_markdown(sealed_summary(cfg, losing_metrics()))) if r.startswith("| C09 "))
+    assert "Es decir: lo deja en 1 de los 17 puntos de equilibrio y no lo deja en 16." in one
 
 
 def test_the_pending_summary_says_why_the_test_is_not_evaluated(quick_history, tmp_path):

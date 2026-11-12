@@ -241,6 +241,21 @@ def test_every_memory_figure_names_its_counter(project_root: Path, readme: str, 
     assert figures >= 10   # the documents do state memory figures: the check is not vacuous
 
 
+def test_every_criterion_row_of_the_summary_and_of_the_readme_block_has_the_cells_of_its_header(project_root: Path, readme: str) -> None:
+    """A4 of the independent evaluation (``U31/resumen-C07-barras``): the versioned summary and the README block, row by row, have as many cells
+    as the header of their table; an unescaped pipe inside a cell (C07's «|sesgo|») would split its row."""
+    def cells(line: str) -> int:
+        return len(re.findall(r"(?<!\\)\|", line)) - 1
+
+    block = readme.split(RESULTS_START)[1].split(RESULTS_END)[0]
+    for name, text in (("reports/evaluation_summary.md", (project_root / "reports" / "evaluation_summary.md").read_text(encoding="utf-8")), ("README.md", block)):
+        lines = text.splitlines()
+        header = next(line for line in lines if line.startswith("| Criterio |"))
+        rows = [line for line in lines if re.match(r"\| C\d\d ", line)]
+        assert len(rows) == 10 and cells(header) == 5, name
+        assert [(row.split(" ")[1], cells(row)) for row in rows if cells(row) != cells(header)] == [], name
+
+
 def test_results_block_matches_summary(project_root: Path, readme: str, summary: dict) -> None:
     """Plan 24.2, the class «documentación sin sincronizar»: the block is the summary of the sealed run, its run and its date included."""
     from churnrisk.docs_sync import readme_block

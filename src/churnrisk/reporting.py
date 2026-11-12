@@ -269,6 +269,21 @@ def build_summary(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str
     return summary
 
 
+def _cell(text: Any) -> str:
+    """A cell of a Markdown table: its pipes escaped, so «|sesgo|» stays inside its cell (A4 of the independent evaluation, D91)."""
+    return str(text).replace("|", r"\|")
+
+
+def _verdict(c: dict[str, Any]) -> str:
+    """The verdict of a criterion as the summary says it: the sealed ``verdict_es`` and, for C09, the same sealed numbers said plainly, at how
+    many break-even points the model keeps at least the benefit of B* and at how many it does not (A5, D91). The data keep the sealed text."""
+    text = c["verdict_es"]
+    if c["criterion_id"] == "C09" and c.get("value") is not None and c.get("baseline_value") is not None:
+        kept, points = int(c["value"]), int(c["baseline_value"])
+        text += f" Es decir: lo deja en {kept} de los {points} puntos de equilibrio y no lo deja en {points - kept}."
+    return text
+
+
 def summary_markdown(summary: dict[str, Any]) -> str:
     """The Markdown of the summary, in Spanish: the state, each criterion with its number and its verdict (also «no supera»), and below, the
     post-seal analysis when there is one."""
@@ -287,7 +302,7 @@ def summary_markdown(summary: dict[str, Any]) -> str:
                   "| Criterio | Umbral | Valor | Cumple | Veredicto |", "| --- | --- | ---: | --- | --- |"]
         for c in summary["criteria"]:
             passed = "informativo" if c["passed"] is None else ("sí" if c["passed"] else "no")
-            lines.append(f"| {c['criterion_id']} {c['name_es']} | {c['threshold_es']} | {es(c['value'])} | {passed} | {c['verdict_es']} |")
+            lines.append(f"| {c['criterion_id']} {_cell(c['name_es'])} | {_cell(c['threshold_es'])} | {es(c['value'])} | {passed} | {_cell(_verdict(c))} |")
         lines.append("")
     post = summary.get("post_seal")
     if post and post.get("criteria"):
@@ -295,7 +310,7 @@ def summary_markdown(summary: dict[str, Any]) -> str:
         lines += ["### Análisis posterior al sello", "",
                   f"Con otra configuración que la sellada (costo de la oferta {es(costs['offer_cost'], 2)}, tasa de rescate {es(costs['rescue_rate'], 2)}, "
                   f"valor del cliente retenido {es(costs['retained_value'], 2)}): no reemplaza lo sellado.", ""]
-        lines += [f"- {c['criterion_id']}: {c['verdict_es']}" for c in post["criteria"]]
+        lines += [f"- {c['criterion_id']}: {_verdict(c)}" for c in post["criteria"]]
         lines.append("")
     lines.append(f"Estado: {status}. Corrida {summary['run_key']} del {summary['as_of']}.")
     return "\n".join(lines) + "\n"
