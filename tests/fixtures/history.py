@@ -113,20 +113,24 @@ def build_history(folder: Path, cfg: PipelineConfig, source_sha256: str, launch_
     return history
 
 
-SEALED_TABLES = ("eval_metrics", "eval_per_cut", "eval_bootstrap", "eval_cost_sensitivity", "eval_gain", "eval_roc", "eval_calibration",
-                 "feature_importance", "eval_criteria")
+SCOPED_TABLES = ("eval_metrics", "eval_per_cut", "eval_bootstrap", "eval_cost_sensitivity", "eval_gain", "eval_roc", "eval_calibration",
+                 "feature_importance")
+TEST_TABLES = ("eval_criteria", "eval_variants")      # written only with the test
 
 
 def without_sealed_rows(history: History, folder: Path, **sections) -> PipelineConfig:
-    """A copy of the history's last warehouse and of its seal with the sealed rows of the evaluation gone, as a rebuild from scratch leaves
-    them, and the quick configuration with `sections` replaced."""
+    """A copy of the history's last warehouse and of its seal with the sealed rows of the test gone, as a rebuild from scratch leaves them by
+    the run that closes the test windows (the rows of V2 are written again by its own launch), and the quick configuration with `sections`
+    replaced."""
     cfg = quick_config(folder, **sections)
     cfg.paths.seal.parent.mkdir(parents=True)
     shutil.copy2(history.cfg.paths.seal, cfg.paths.seal)
     shutil.copy2(history.warehouse, cfg.paths.warehouse)
     conn = connect(cfg.paths.warehouse)
     try:
-        for table in SEALED_TABLES:
+        for table in SCOPED_TABLES:
+            conn.execute(f"DELETE FROM {table} WHERE seal_state = 'sealed' AND scope = 'test'")
+        for table in TEST_TABLES:
             conn.execute(f"DELETE FROM {table} WHERE seal_state = 'sealed'")
     finally:
         conn.close()

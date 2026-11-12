@@ -78,12 +78,12 @@ def test_bootstrap_resamples_whole_customers_and_is_seeded():
     got = cluster_bootstrap(*args, 300, 0)
     diffs, discarded = by_hand(case, 300, 0, "customer")
     assert (got.kept, got.discarded) == (len(diffs), discarded) and discarded > 0
-    assert (got.ci_low, got.ci_high) == tuple(np.percentile(diffs, [2.5, 97.5]))
+    assert (got.ci_low, got.ci_high) == pytest.approx(tuple(np.percentile(diffs, [2.5, 97.5])), abs=1e-12)
     assert got.diff == pytest.approx(roc_auc_score(case["churned"], case["score_a"]) - roc_auc_score(case["churned"], case["score_b"]))
     assert cluster_bootstrap(*args, 300, 0) == got, "the same seed, the same interval"
     assert cluster_bootstrap(*args, 300, 1) != got
     by_rows, _ = by_hand(case, 300, 0, "rows")
-    assert (got.ci_low, got.ci_high) != tuple(np.percentile(by_rows, [2.5, 97.5])), "resampling rows is another interval"
+    assert abs(got.ci_low - np.percentile(by_rows, 2.5)) + abs(got.ci_high - np.percentile(by_rows, 97.5)) > 1e-6, "resampling rows is another interval"
 
 
 def test_a_block_with_one_class_is_its_own_error_before_any_fit(cfg):

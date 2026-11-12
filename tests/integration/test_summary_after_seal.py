@@ -24,7 +24,8 @@ def sealed_criteria(history) -> list[dict]:
 
 def test_a_warehouse_without_sealed_rows_takes_the_sealed_result_from_the_seal(quick_history, tmp_path):
     other = dataclasses.replace(quick_history.cfg.costs, offer_cost=7.0)
-    cfg = without_sealed_rows(quick_history, tmp_path / "rebuilt", costs=other)
+    one_variant = dataclasses.replace(quick_history.cfg.sensitivity, variants=("n60",))     # post-seal anyway: one variant is enough here
+    cfg = without_sealed_rows(quick_history, tmp_path / "rebuilt", costs=other, sensitivity=one_variant)
     last = quick_history.runs[-1].spec
     conn = connect(cfg.paths.warehouse)
     try:

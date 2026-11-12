@@ -41,8 +41,10 @@ from churnrisk.features import build_matrix
 from churnrisk.files import write_atomic
 from churnrisk.launch import load_registered
 from churnrisk.leakage_demo import leakage_table
+from churnrisk.model import Candidate
 from churnrisk.registry import SealError, config_fingerprint, read_seal, seal_state, sealed_view, write_test_seal
 from churnrisk.schema import FEATURE_COLUMNS
+from churnrisk.sensitivity import definition_tables, run_variants
 from churnrisk.split import labelled_rows
 from churnrisk.warehouse import apply_schema
 
@@ -141,6 +143,18 @@ def _importance(conn: sqlite3.Connection, bundle, scope: str, view, state: str, 
                 [(scope, f, state, float(v), run_key) for f, v in zip(table["feature"], table["mean_abs_shap"], strict=True)])
 
 
+def variant_rows(variants: list[dict[str, Any]], state: str, run_key: str) -> list[tuple]:
+    """The variants as rows of ``eval_variants``: (variant, method, metric, seal_state, value, run_key)."""
+    rows = []
+    for v in variants:
+        for method, metric, key in (("all", "n", "n"), ("all", "m", "m"), ("all", "rows", "rows"), ("all", "churn_rate", "churn_rate"),
+                                    ("model", "auc", "auc_model"), ("b2_rfm", "auc", "auc_b2"), ("b_star", "auc", "auc_b_star"),
+                                    ("b2_rfm", "diff_ci_low", "diff_b2_ci_low"), ("b2_rfm", "diff_ci_high", "diff_b2_ci_high"),
+                                    ("b_star", "diff_ci_low", "diff_b_star_ci_low"), ("b_star", "diff_ci_high", "diff_b_star_ci_high")):
+            rows.append((v["variant"], method, metric, state, _db(v[key]), run_key))
+    return rows
+
+
 # --- the task ----------------------------------------------------------------------------------------------------------------
 
 
@@ -164,6 +178,9 @@ def evaluate(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str, as_
         leak = leakage_table(conn, view, json.loads(conn.execute("SELECT params_json FROM model_registry WHERE model_version = ?",
                                                                  (registered.model_version,)).fetchone()[0]), cfg.deliveries.launch_as_of)
         _store_rows(conn, "eval_leakage", "1 = 1", (), [(r.variable, r.variable_es, r.auc_valid_v2, r.note_es, run_key) for r in leak.itertuples()])
+        definition, silences = definition_tables(conn, view, as_of)
+        _store_rows(conn, "eval_label_definition", "1 = 1", (), [(int(r.n), int(r.m), float(r.churn_rate), int(r.rows), run_key) for r in definition.itertuples()])
+        _store_rows(conn, "eval_silence_return", "1 = 1", (), [(int(r.n), int(r.silences), _db(r.return_share), run_key) for r in silences.itertuples()])
         out["valid_v2"] = "evaluated"
     if as_of < test_ready_date(cfg):
         return out
@@ -171,11 +188,15 @@ def evaluate(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str, as_
         out["test"] = "sealed_before"
         return out
     result = evaluate_frame(block_data(conn, "test", bundle, view), v2, threshold, view)
-    criteria = evaluate_criteria(result, view)
+    params = json.loads(conn.execute("SELECT params_json FROM model_registry WHERE model_version = ?", (registered.model_version,)).fetchone()[0])
+    candidate = Candidate(registered.feature_set, params["learning_rate"], params["max_leaf_nodes"], params["min_samples_leaf"])
+    variants = run_variants(conn, view, bundle, candidate, read_seal(cfg.paths.seal), as_of)     # after the launch part of the seal
+    criteria = evaluate_criteria(result, view, variants)
     part = {"run_key": run_key, "as_of": as_of.isoformat(), "config_sha256": config_sha256, "criteria": [c.seal_entry() for c in criteria],
-            "metrics": seal_metrics(result), "per_cut": result.per_cut, "variants": []}
+            "metrics": seal_metrics(result), "per_cut": result.per_cut, "variants": variants}
     outcome = write_test_seal(cfg.paths.seal, part) if rows_state == "sealed" else "post_seal"
     store_result(conn, result, criteria, rows_state, run_key, as_of)
+    _store_rows(conn, "eval_variants", "seal_state = ?", (rows_state,), variant_rows(variants, rows_state, run_key))
     _importance(conn, bundle, "test", view, rows_state, run_key)
     out.update(test=outcome, criteria={c.criterion_id: c.passed for c in criteria})
     logger.info("evaluate %s: test %s (%s), criteria passed %s", run_key, outcome, rows_state, [c.criterion_id for c in criteria if c.passed])

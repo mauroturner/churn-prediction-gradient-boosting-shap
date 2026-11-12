@@ -213,3 +213,33 @@ CREATE TABLE IF NOT EXISTS eval_leakage (
     note_es TEXT NOT NULL,
     run_key TEXT NOT NULL
 );
+
+-- The sensitivity (plan, section 17; D10): each variant of N, M and of the December cut on its own test cuts, written with the evaluation of
+-- the test; and the definition of the label on the training cuts (N x M and the silences that come back), written with the validation.
+
+CREATE TABLE IF NOT EXISTS eval_variants (
+    variant TEXT NOT NULL,
+    method TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    value REAL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (variant, method, metric, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_label_definition (
+    n INTEGER NOT NULL,
+    m INTEGER NOT NULL,
+    churn_rate REAL NOT NULL,
+    rows INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (n, m)
+);
+
+CREATE TABLE IF NOT EXISTS eval_silence_return (
+    n INTEGER PRIMARY KEY,
+    silences INTEGER NOT NULL,
+    return_share REAL,
+    run_key TEXT NOT NULL
+);
+

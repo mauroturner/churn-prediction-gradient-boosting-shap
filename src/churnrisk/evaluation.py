@@ -23,7 +23,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.stats import rankdata
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from churnrisk.config import SealedConfig
@@ -129,11 +128,20 @@ class Bootstrap:
     discarded: int
 
 
-def _fast_auc(y: np.ndarray, score: np.ndarray) -> float:
-    ranks = rankdata(score)
-    positives = y == 1
-    n1, n0 = int(positives.sum()), int((~positives).sum())
-    return float((ranks[positives].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+class _WeightedAuc:
+    """The AUC (ties by halves) of one score under integer weights per row, in one pass over the groups of equal scores: a resample of whole
+    customers is the same rows with the number of times each customer was drawn as their weight."""
+
+    def __init__(self, y: np.ndarray, score: np.ndarray) -> None:
+        values, self.group = np.unique(score, return_inverse=True)     # groups in increasing score
+        self.groups = len(values)
+        self.positive = (y == 1).astype("float64")
+
+    def __call__(self, weights: np.ndarray) -> float:
+        pos = np.bincount(self.group, weights=weights * self.positive, minlength=self.groups)
+        neg = np.bincount(self.group, weights=weights * (1.0 - self.positive), minlength=self.groups)
+        below = np.cumsum(neg) - neg                                      # the negatives with a lower score than each group
+        return float((pos * (below + 0.5 * neg)).sum() / (pos.sum() * neg.sum()))
 
 
 def cluster_bootstrap(y, s_a, s_b, customer_ids, n: int, seed: int) -> Bootstrap:
@@ -144,16 +152,19 @@ def cluster_bootstrap(y, s_a, s_b, customer_ids, n: int, seed: int) -> Bootstrap
         raise EvaluationError("las etiquetas, los puntajes y los clientes deben tener el mismo largo")
     require_both_classes(y, "del remuestreo")
     unique, inverse = np.unique(customers, return_inverse=True)
-    groups = [np.flatnonzero(inverse == g) for g in range(len(unique))]
+    auc_a, auc_b = _WeightedAuc(y, s_a), _WeightedAuc(y, s_b)
+    churners_of = np.bincount(inverse, weights=y, minlength=len(unique))
+    rows_of = np.bincount(inverse, minlength=len(unique))
     rng = np.random.default_rng(seed)
     diffs, discarded = [], 0
     for _ in range(n):
-        rows = np.concatenate([groups[g] for g in rng.integers(0, len(groups), len(groups))])
-        yy = y[rows]
-        if yy.min() == yy.max():
+        drawn = np.bincount(rng.integers(0, len(unique), len(unique)), minlength=len(unique))   # how many times each customer was drawn
+        churners, rows = float(drawn @ churners_of), int(drawn @ rows_of)
+        if churners == 0 or churners == rows:
             discarded += 1
             continue
-        diffs.append(_fast_auc(yy, s_a[rows]) - _fast_auc(yy, s_b[rows]))
+        weights = drawn[inverse].astype("float64")
+        diffs.append(auc_a(weights) - auc_b(weights))
     diff = auc_score(y, s_a) - auc_score(y, s_b)
     if not diffs:
         return Bootstrap(diff, None, None, 0, discarded)
@@ -337,9 +348,10 @@ def _beats(a: float | None, b: float | None, *, lower_is_better: bool = False) -
 
 
 def _criteria_of(metrics: Mapping[str, Mapping[str, Any]], per_cut: Sequence[Mapping[str, Any]], costs_document: Mapping[str, Any],
-                 criteria_document: Mapping[str, Any]) -> list[Criterion]:
-    """C01-C10 from the sealed numbers only: ``metrics`` (by method, plus ``bootstrap`` and ``cost_sensitivity``), the per-cut figures and the
-    sealed ``[costs]`` and ``[criteria]`` (the range of C09 comes from the sealed view, not from a constant)."""
+                 criteria_document: Mapping[str, Any], variants: Sequence[Mapping[str, Any]] = ()) -> list[Criterion]:
+    """C01-C10 from the sealed numbers only: ``metrics`` (by method, plus ``bootstrap`` and ``cost_sensitivity``), the per-cut figures, the
+    variants of the sensitivity and the sealed ``[costs]`` and ``[criteria]`` (the range of C09 comes from the sealed view, not from a
+    constant)."""
     model, b2, b_star = metrics[MODEL], metrics["b2_rfm"], metrics[B_STAR]
     boot = metrics["bootstrap"]
     sens = metrics["cost_sensitivity"]
@@ -389,7 +401,12 @@ def _criteria_of(metrics: Mapping[str, Mapping[str, Any]], per_cut: Sequence[Map
                               CRITERIA["C09"][1].format(low=es(low, 2), high=es(high, 2))))
     cuts = "; ".join(f"{c['cut']}: AUC {es(c.get('auc_model'))}, tasa de bajas {es(c['churn_rate'])}, diferencia con B2 {es(c.get('diff_b2_rfm'), 2)} y con "
                      f"B* {es(c.get('diff_b_star'), 2)}" for c in per_cut)
-    out.append(_criterion("C10", None, None, None, f"Por corte de prueba: {cuts}.", CRITERIA["C10"][1]))
+    text = f"Por corte de prueba: {cuts}."
+    if variants:
+        text += " Sensibilidades: " + "; ".join(
+            f"{v['label_es']} ({', '.join(v['test_cuts'])}): AUC del modelo {es(v['auc_model'])}, de RFM {es(v['auc_b2'])} y de B* {es(v['auc_b_star'])}, "
+            f"intervalo de la diferencia con B* de {es(v['diff_b_star_ci_low'], 2)} a {es(v['diff_b_star_ci_high'], 2)}" for v in variants) + "."
+    out.append(_criterion("C10", None, None, None, text, CRITERIA["C10"][1]))
     return out
 
 
@@ -404,11 +421,11 @@ def seal_metrics(result: EvaluationResult) -> dict[str, dict[str, float | None]]
     return out
 
 
-def evaluate_criteria(result: EvaluationResult, view: SealedConfig) -> list[Criterion]:
+def evaluate_criteria(result: EvaluationResult, view: SealedConfig, variants: Sequence[Mapping[str, Any]] = ()) -> list[Criterion]:
     from churnrisk.registry import sealed_document
 
     document = sealed_document(view)
-    return _criteria_of(seal_metrics(result), result.per_cut, document["costs"], document["criteria"])
+    return _criteria_of(seal_metrics(result), result.per_cut, document["costs"], document["criteria"], variants)
 
 
 def _rounded(value):
@@ -427,7 +444,7 @@ def criteria_from_seal(seal: Mapping[str, Any]) -> list[Criterion]:
     test, launch = seal.get("test"), seal.get("launch")
     if not test or not launch:
         raise SealError("el sello no tiene la parte de la prueba: no hay criterios sellados")
-    rebuilt = _criteria_of(test["metrics"], test["per_cut"], launch["sealed_config"]["costs"], launch["sealed_config"]["criteria"])
+    rebuilt = _criteria_of(test["metrics"], test["per_cut"], launch["sealed_config"]["costs"], launch["sealed_config"]["criteria"], test["variants"])
     sealed = {entry["id"]: entry for entry in test["criteria"]}
     for criterion in rebuilt:
         if _rounded(criterion.seal_entry()) != _rounded(sealed.get(criterion.criterion_id)):
