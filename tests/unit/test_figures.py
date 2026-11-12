@@ -45,13 +45,10 @@ def drawn(site) -> dict:
 
 
 @pytest.fixture(scope="module")
-def written(site_files, tmp_path_factory):
-    """The seven files written once from the site files into a folder that held a figure of an earlier run: ``(folder, paths, {name: bytes})``."""
-    out = tmp_path_factory.mktemp("written") / "figures"
-    out.mkdir()
-    (out / "gain_curve.png").write_bytes(b"old")      # a figure of an earlier run is replaced
-    paths = figures.make_figures(site_files, out)
-    return out, paths, {p.name: p.read_bytes() for p in paths}
+def written(figures_written):
+    """The seven files written once from the site files into a folder that held a figure of an earlier run: ``(folder, paths, {name: bytes})``
+    (the session's ``figures_written``, which the test of privacy reads too)."""
+    return figures_written
 
 
 # --- the RED of U28 ----------------------------------------------------------------------------------------------------------------------

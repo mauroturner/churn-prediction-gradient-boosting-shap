@@ -7,14 +7,15 @@ import json
 import sqlite3
 
 from churnrisk.registry import read_seal
-from churnrisk.reporting import evaluate, test_delivery
+from churnrisk.reporting import evaluate
+from churnrisk.reporting import test_delivery as delivery_of_the_test   # under its own name pytest would collect it (A14)
 from churnrisk.warehouse import connect
 from tests.fixtures.history import without_sealed_rows
 
 
 def test_the_test_is_evaluated_once_by_the_run_that_closes_its_windows_and_sealed(quick_history):
     runs = {r.spec.delivery_id: r for r in quick_history.runs}
-    assert test_delivery(quick_history.cfg) == "M2011-11"
+    assert delivery_of_the_test(quick_history.cfg) == "M2011-11"
     assert [(r.spec.delivery_id, r.evaluation["valid_v2"], r.evaluation["test"]) for r in quick_history.runs] == [
         ("L2011-07", "evaluated", "pending"), ("M2011-08", "kept", "pending"), ("M2011-09", "kept", "pending"), ("M2011-10", "kept", "pending"),
         ("M2011-11", "kept", "written"), ("C2011-12", "kept", "sealed_before")]

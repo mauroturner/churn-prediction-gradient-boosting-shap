@@ -386,11 +386,13 @@ def quick_replay(tmp_path_factory: pytest.TempPathFactory, pipeline_states: dict
 
 @pytest.fixture(scope="session")
 def replay_states(tmp_path_factory: pytest.TempPathFactory, quick_replay):
-    """The rest of the documented quick replay, once per session, from a copy of the quick project the session's ``quick_replay`` left (the
+    """More of the documented quick replay, once per session, from a copy of the quick project the session's ``quick_replay`` left (the
     launch and ``M2011-08`` closed): ``replay --until M2011-10``, a copy of its ``data/quick`` as ``before_test`` (the seal still without its
-    test part, ``M2011-11`` pending: the run that evaluates the test), then ``replay`` to the end (``M2011-11`` writes the test part,
-    ``C2011-12`` closes) and a ``run`` with no delivery left. Each command runs in this process from an empty folder that is not the project;
-    ``results`` keeps their exit codes and what they wrote to stdout and stderr. A test that writes works on a copy (D34)."""
+    test part, ``M2011-11`` pending: the run that evaluates the test), then ``replay --until M2011-11`` (the run that writes the test part of
+    the seal and the sealed outputs) and a lone ``task track`` of a new run, which fails and leaves its traceback in its state file (exit 1).
+    The close (``C2011-12``) and a run with no delivery write the same kinds of files and are left out: the fast suite is near its limit
+    (D92). Each command runs in this process from an empty folder that is not the project; ``results`` keeps their exit codes and what they
+    wrote to stdout and stderr. A test that writes works on a copy (D34)."""
     from tests.fixtures.cli_helpers import QUICK_CONFIG, at_home, cli
 
     base = tmp_path_factory.mktemp("replay_states")
@@ -402,9 +404,22 @@ def replay_states(tmp_path_factory: pytest.TempPathFactory, quick_replay):
     with at_home(home, elsewhere):
         results.append(cli("replay", "--config", QUICK_CONFIG, "--until", "M2011-10"))
         shutil.copytree(home / "data" / "quick", before_test)
-        results.append(cli("replay", "--config", QUICK_CONFIG))
-        results.append(cli("run", "--config", QUICK_CONFIG))
+        results.append(cli("replay", "--config", QUICK_CONFIG, "--until", "M2011-11"))
+        results.append(cli("task", "track", "--config", QUICK_CONFIG))
     return types.SimpleNamespace(home=home, quick=home / "data" / "quick", before_test=before_test, elsewhere=elsewhere, results=results)
+
+
+@pytest.fixture(scope="session")
+def figures_written(tmp_path_factory: pytest.TempPathFactory, site_files: Path):
+    """The seven figures drawn once from the site files of the quick history into a folder that held a figure of an earlier run (plan 24.1):
+    ``(folder, paths, {name: bytes})``. The tests of the figures and of privacy share them."""
+    from churnrisk import figures
+
+    out = tmp_path_factory.mktemp("written") / "figures"
+    out.mkdir()
+    (out / "gain_curve.png").write_bytes(b"old")      # a figure of an earlier run is replaced
+    paths = figures.make_figures(site_files, out)
+    return out, paths, {p.name: p.read_bytes() for p in paths}
 
 
 @pytest.fixture(scope="session")

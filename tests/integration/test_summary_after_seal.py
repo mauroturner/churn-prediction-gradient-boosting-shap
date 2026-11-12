@@ -41,11 +41,29 @@ def test_a_warehouse_without_sealed_rows_takes_the_sealed_result_from_the_seal(q
     assert summary["test"] == read_seal(cfg.paths.seal)["test"]["metrics"]
     post = summary["post_seal"]
     assert post["costs"]["offer_cost"] == 7.0 and [c["criterion_id"] for c in post["criteria"]] == [f"C{i:02d}" for i in range(1, 11)]
+    assert summary["costs"]["offer_cost"] == quick_history.cfg.costs.offer_cost, "the sealed figures carry the sealed costs (A2)"
     assert post["test"]["model"]["threshold"] == outcome_threshold(cfg)
     text = summary_markdown(summary)
     assert "Criterios fijados antes de construir, evaluados una vez sobre la prueba (tomados del sello)." in text
     assert "### Análisis posterior al sello" in text and "costo de la oferta 7,00" in text
     assert text.index("| C01") < text.index("### Análisis posterior al sello"), "the run's own analysis goes below what was sealed"
+
+
+def test_a_post_seal_summary_puts_the_sealed_costs_next_to_the_sealed_figures(quick_history, tmp_path):
+    """A2 of the independent evaluation (``U17/R3-post-seal-costs-staleness``; D92): a rebuild with another offer cost takes the criteria and
+    the test figures from the seal, and its top-level ``costs`` were the run's: 7 next to figures sealed with 5. The top level now carries the
+    sealed costs, and only the post-seal block names the run's own."""
+    other = dataclasses.replace(quick_history.cfg.costs, offer_cost=7.0)
+    cfg = without_sealed_rows(quick_history, tmp_path / "rebuilt", costs=other)
+    conn = connect(cfg.paths.warehouse)
+    try:
+        summary = build_summary(conn, cfg, run_key="r9", as_of=quick_history.runs[-1].spec.as_of, source_sha256=quick_history.view.source_sha256)
+    finally:
+        conn.close()
+    sealed = read_seal(cfg.paths.seal)["launch"]["sealed_config"]["costs"]
+    assert (summary["evaluation_status"], summary["sealed_from"]) == ("sealed", "seal")
+    assert summary["costs"] == {k: sealed[k] for k in ("offer_cost", "rescue_rate", "retained_value")}
+    assert summary["costs"]["offer_cost"] == quick_history.cfg.costs.offer_cost != 7.0
 
 
 def outcome_threshold(cfg) -> float:

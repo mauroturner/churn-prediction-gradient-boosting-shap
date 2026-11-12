@@ -8,7 +8,8 @@ everything is stored as ``post_seal`` and the seal is left as it is (M05).
 
 ``build_summary`` says what is known: the test pending (with the reason and the figures of V2, labelled as validation), the sealed criteria from
 the warehouse, or, when the warehouse has no sealed rows but the seal has its test part (a rebuild from scratch with other costs), the criteria
-rebuilt from the seal, each checked against its entry (D20), with the run's own analysis below as post-seal. ``write_summary`` writes
+rebuilt from the seal, each checked against its entry (D20), with the run's own analysis below as post-seal. The top-level ``costs`` are those of
+the figures next to them: the sealed ones when the criteria are sealed, the run's own in the post-seal block (D92). ``write_summary`` writes
 ``evaluation_summary.json`` and ``.md``; ``sync_block`` copies the Markdown between two markers of the README.
 
 This module receives the whole configuration (the paths of the seal and of the reports); the calculations it calls receive the sealed view.
@@ -52,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 SUMMARY_VERSION = 1
 RESULTS_START, RESULTS_END = "<!-- results:start -->", "<!-- results:end -->"
+COST_KEYS = ("offer_cost", "rescue_rate", "retained_value")      # the costs the summary names, next to the figures computed with them
 METHODS_ES = {"model": "Modelo", "b0_all": "Contactar a todos", "b1_recency": "Recencia", "b2_rfm": "RFM", "b3_bgnbd": "BG/NBD",
               "b4_frequency": "Frecuencia", "b5_alive": "1 − P(vivo)", "b_star": "Base más fuerte (B*)"}
 
@@ -239,9 +241,9 @@ def build_summary(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str
     state = seal_state(cfg.paths.seal, config_fingerprint(view))
     rows_state = "sealed" if state == "match" else "post_seal"
     seal = read_seal(cfg.paths.seal)
+    run_costs = {key: getattr(view.costs, key) for key in COST_KEYS}
     summary: dict[str, Any] = {
-        "schema_version": SUMMARY_VERSION, "run_key": run_key, "as_of": as_of.isoformat(), "source_sha256": source_sha256,
-        "costs": {"offer_cost": view.costs.offer_cost, "rescue_rate": view.costs.rescue_rate, "retained_value": view.costs.retained_value},
+        "schema_version": SUMMARY_VERSION, "run_key": run_key, "as_of": as_of.isoformat(), "source_sha256": source_sha256, "costs": run_costs,
         "validation_v2": _metrics(conn, "valid_v2", rows_state), "test": None, "post_seal": None, "pending_reason_es": None,
     }
     sealed_rows = _criteria_rows(conn, "sealed")
@@ -261,8 +263,10 @@ def build_summary(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str
             {"criterion_id": cid, "name_es": name, "value": None, "baseline_value": None, "ci_low": None, "ci_high": None, "threshold_es": threshold,
              "passed": None, "seen_by_research": research, "seen_by_planner": planner, "verdict_es": "Pendiente: " + reason}
             for cid, (name, threshold, research, planner) in CRITERIA.items()])
-    if post_rows and summary["evaluation_status"] == "sealed":       # the run's own analysis, below what was sealed
-        summary["post_seal"] = {"criteria": post_rows, "test": _metrics(conn, "test", "post_seal") or None, "costs": summary["costs"]}
+    if summary["evaluation_status"] == "sealed" and seal is not None:   # the sealed figures carry the sealed costs (A2, D92)
+        summary["costs"] = {key: seal["launch"]["sealed_config"]["costs"][key] for key in COST_KEYS}
+    if post_rows and summary["evaluation_status"] == "sealed":       # the run's own analysis, below what was sealed, with its own costs
+        summary["post_seal"] = {"criteria": post_rows, "test": _metrics(conn, "test", "post_seal") or None, "costs": run_costs}
     if seal is not None:
         summary["seal"] = {"config_sha256": seal["launch"]["config_sha256"], "launch_run_key": seal["launch"]["run_key"],
                            "test_run_key": (seal.get("test") or {}).get("run_key"), "test_as_of": (seal.get("test") or {}).get("as_of")}

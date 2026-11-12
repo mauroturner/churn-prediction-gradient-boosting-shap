@@ -132,10 +132,9 @@ def test_docs_sync_puts_the_summary_one_level_down_under_the_readme_heading(proj
 # the advisories and the root rows (AC40) ------------------------------------------------------------------------------------------------
 
 NAMED_TEST = re.compile(r"(tests/[\w/]+\.py)?::(test_\w+)")
-# Named by the plan (section 24.2, the class «un identificador en un archivo o en una imagen publicada») and never written by the unit that
-# owed it; U31 may not write under tests/integration/, so the gap stays visible here and in docs/review-advisories.md until a correction
-# writes it (D88). The test fails if anything else is missing, and once this one exists.
-KNOWN_MISSING = ["tests/integration/test_privacy.py::test_no_fixture_customer_id_in_any_versioned_byte_or_run_log"]
+# Every test the plan names exists: the one gap U31 left (``tests/integration/test_privacy.py::test_no_fixture_customer_id_in_any_versioned_byte_or_run_log``,
+# D88) was written by the corrections of the independent evaluation (A11, D92). The test fails if any named test is missing.
+KNOWN_MISSING: list[str] = []
 DECISION_FIELDS = ("Contexto", "Opciones", "Decisión", "Motivo", "Afecta", "Quién", "Estado")   # AC40: every decision, D01 to the last
 COUNTERS = ("PeakWorkingSetSize", "PeakPagefileUsage", "ru_maxrss", "conjunto de trabajo", "memoria comprometida")   # by API name or what it counts
 MEMORY_FIGURE = re.compile(r"\d[\d.]*(?:,\d+)?\s?(?:MB|GB|MiB|GiB)\b")

@@ -350,7 +350,7 @@ def _broken(change: str):
     ("repeated_table", "hay tablas repetidas"), ("repeated_column", "dim_cut repite una columna"), ("unknown_type", "tipo desconocido decimal"),
     ("key_not_a_column", "la clave missing_key de dim_cut no es una columna"), ("customer_column", "dim_cut es versionada y tiene una columna de cliente"),
     ("fact_to_fact", "R99 no une una dimensión con un hecho"), ("not_the_whole_key", "R99 no usa la clave entera de dim_cut"),
-    ("other_type", "R99: fact_tracking\[cut_key\] no es una columna del tipo"), ("both_directions", "R01 no es uno a varios, de filtro unidireccional"),
+    ("other_type", r"R99: fact_tracking\[cut_key\] no es una columna del tipo"), ("both_directions", "R01 no es uno a varios, de filtro unidireccional"),
 ])
 def test_the_model_check_names_every_way_the_specification_can_be_wrong(change, message):
     """R3-coverage-validate-model-negative: each branch of ``validate_model``, and the export refuses an incoherent model before writing."""

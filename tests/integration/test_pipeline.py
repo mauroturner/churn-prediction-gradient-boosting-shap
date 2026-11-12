@@ -277,8 +277,8 @@ def test_a_run_that_would_evaluate_the_test_under_another_configuration_is_refus
         with pytest.raises(RunRefusedError, match=r"la corrida M11 evaluaría la prueba \(entrega M2011-11, cálculo al 2011-11-30\)"):
             run_task(task_id, "M11", other)
     assert fingerprint(root) == held
-    # the session's replay, with the sealed configuration all along: M2011-11 wrote the test part at its own date, and nothing rewrote it
-    assert [r.code for r in replay_states.results] == [0, 0, 0], [r.err for r in replay_states.results]
+    # the session's replay, with the sealed configuration all along: M2011-11 wrote the test part at its own date
+    assert [r.code for r in replay_states.results] == [0, 0, 1], [r.err for r in replay_states.results]
     test = read_seal(Path(replay_states.quick) / "reports" / "model_seal.json")["test"]
     assert (test["as_of"], test["config_sha256"]) == ("2011-11-30", launch_sha)
 

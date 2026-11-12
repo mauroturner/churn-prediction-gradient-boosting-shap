@@ -235,3 +235,26 @@ def test_the_compose_file_says_how_to_set_airflow_uid(compose):
     assert 'user: "${AIRFLOW_UID:-50000}:0"' in common
     comments = " ".join(line.strip() for line in common.splitlines() if line.strip().startswith("#"))
     assert "AIRFLOW_UID" in comments and "id -u" in comments and "Linux" in comments
+
+
+def test_the_docker_test_removes_the_image_it_built_and_keeps_one_it_found(compose, monkeypatch, tmp_path):
+    """A13 of the independent evaluation (D92): the Docker test left ``churnrisk-airflow:3.4.0`` behind. Its teardown removes the image when the
+    test built it, and keeps it when it was already there before the test; the name is the compose file's. No Docker command runs here: the
+    teardown's ``docker`` calls are recorded, and its folders point inside ``tmp_path``."""
+    from tests.e2e import test_airflow_docker as docker_test
+
+    calls: list[tuple[str, ...]] = []
+
+    def recorded(*args, **_kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(["docker", *args], 0, "", "")
+
+    monkeypatch.setattr(docker_test, "docker", recorded)
+    for name, folder in (("PROJECT", tmp_path), ("AIRFLOW", tmp_path / "airflow"), ("QUICK", tmp_path / "data" / "quick")):
+        monkeypatch.setattr(docker_test, name, folder)
+    assert f"image: {docker_test.IMAGE}" in compose
+    assert docker_test.teardown(set(docker_test.CREATED), set(docker_test.MOUNTED), image_existed=False) == []
+    assert calls == [("compose", "down", "--volumes"), ("image", "rm", docker_test.IMAGE)]
+    calls.clear()
+    assert docker_test.teardown(set(docker_test.CREATED), set(docker_test.MOUNTED), image_existed=True) == []
+    assert calls == [("compose", "down", "--volumes")], "an image that was there before the test stays"

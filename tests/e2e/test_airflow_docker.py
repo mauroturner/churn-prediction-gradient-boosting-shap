@@ -8,7 +8,7 @@ row and the seal) did not change, and that the cut 2011-09-01 has its scores, ea
 (git-ignored), the ``airflow/logs``, ``airflow/config`` and ``airflow/plugins`` folders the containers use and the empty ``outputs``,
 ``reports`` and ``dashboard`` folders that the writable mounts create when they are missing, with throwaway secrets passed through the
 environment (the four of the compose file, the password of the metadata database included), and removes what it created and the database
-volume at the end. The image stays in the local cache.
+volume at the end, and the image ``churnrisk-airflow:3.4.0`` when this test built it (an image that was there before the test stays; A13, D92).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ AIRFLOW = PROJECT / "airflow"
 QUICK = PROJECT / "data" / "quick"
 CREATED = ("logs", "config", "plugins")         # folders of airflow/ that the bind mounts create
 MOUNTED = ("outputs", "reports", "dashboard")    # folders of the project that the writable mounts create when they are missing
+IMAGE = "churnrisk-airflow:3.4.0"                 # the compose file's image of the Airflow services (tests/unit/test_compose.py checks the name)
 BUILD_TIMEOUT_S = 1800
 STEP_TIMEOUT_S = 900
 TEARDOWN_TIMEOUT_S = 300
@@ -67,8 +68,9 @@ def rows(query: str) -> list[tuple]:
         conn.close()
 
 
-def teardown(existing: set[str], existing_mounts: set[str]) -> list[str]:
-    """Remove the stack, its database volume and the folders this test created; return what could not be done."""
+def teardown(existing: set[str], existing_mounts: set[str], *, image_existed: bool) -> list[str]:
+    """Remove the stack, its database volume, the folders this test created and the image if this test built it (`image_existed` False);
+    return what could not be done."""
     problems: list[str] = []
     try:
         down = docker("compose", "down", "--volumes", check=False, timeout=TEARDOWN_TIMEOUT_S)
@@ -76,6 +78,13 @@ def teardown(existing: set[str], existing_mounts: set[str]) -> list[str]:
             problems.append(f"docker compose down --volumes returned {down.returncode}:\n" + (down.stdout + down.stderr)[-2000:])
     except (Exception, pytest.fail.Exception) as error:
         problems.append(f"docker compose down --volumes did not finish: {error}")
+    if not image_existed:
+        try:
+            removed = docker("image", "rm", IMAGE, check=False, timeout=TEARDOWN_TIMEOUT_S)
+            if removed.returncode != 0:
+                problems.append(f"docker image rm {IMAGE} returned {removed.returncode}:\n" + (removed.stdout + removed.stderr)[-2000:])
+        except (Exception, pytest.fail.Exception) as error:
+            problems.append(f"docker image rm {IMAGE} did not finish: {error}")
     for folder in [QUICK] + [AIRFLOW / name for name in CREATED if name not in existing]:
         shutil.rmtree(folder, ignore_errors=True)
         if folder.exists():
@@ -127,6 +136,7 @@ def test_the_dag_runs_the_launch_and_then_august_in_quick_mode_with_airflow_dags
     assert not QUICK.exists(), "data/quick is left over from another run (run `docker compose down --volumes` in airflow/ and delete it)"
     existing = {name for name in CREATED if (AIRFLOW / name).exists()}
     existing_mounts = {name for name in MOUNTED if (PROJECT / name).exists()}
+    image_existed = docker("image", "inspect", IMAGE, check=False).returncode == 0
     make_fixture(QUICK / "online_retail_fixture.zip", n_customers=300, seed=0)
     try:
         for step in (("compose", "build"), ("compose", "up", "airflow-init")):
@@ -154,7 +164,7 @@ def test_the_dag_runs_the_launch_and_then_august_in_quick_mode_with_airflow_dags
         assert scored > 0 and explained == scored and 1 <= deepest <= 3, "the cut of the run has its scores, each with its reasons (at most three)"
         assert (QUICK / "outputs" / "site" / "summary.json").is_file() and (QUICK / "dashboard" / "powerbi-design.html").is_file()
     finally:
-        problems = teardown(existing, existing_mounts)
+        problems = teardown(existing, existing_mounts, image_existed=image_existed)
         if problems:
             sys.stderr.write("TEARDOWN FAILED:\n" + "\n".join(problems) + "\n")
     assert not problems, "the teardown failed, so the next run will find leftovers:\n" + "\n".join(problems)
