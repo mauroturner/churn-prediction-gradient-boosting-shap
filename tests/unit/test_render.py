@@ -210,6 +210,9 @@ def test_a_model_with_a_zero_rescue_rate_or_value_shows_the_panel_s_break_even_a
     html = render_design(MODEL, tmp_path / "powerbi", private_dir, tmp_path / "zero.html", meta).read_text(encoding="utf-8")
     big = re.search(r'<div class="big">([^<]*)</div>', _block(html, "Punto de equilibrio del panel")).group(1)
     assert html_lib.unescape(big) == "—"
+    for title in ("Contactos con el panel", "Beneficio esperado con el panel (u.)"):     # R3-cards-benefit-zero-divisor-untested: an empty panel has no figure either
+        card = _block(html, title)
+        assert html_lib.unescape(re.search(r'<div class="big">([^<]*)</div>', card).group(1)) == "—" and "menos de" in html_lib.unescape(card), title
 
 
 def test_without_sealed_test_rows_the_evaluation_previews_show_v2_and_say_it_is_not_the_test(design, star_files, tmp_path):

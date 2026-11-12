@@ -366,3 +366,69 @@ def test_a_boot_id_that_cannot_be_decoded_is_no_boot_id_and_never_stops_the_lock
     assert lock._boot_id() is None
     with lock.sole_writer(tmp_path, "run", "r1"):
         assert lock.read_holder(tmp_path)["boot"] is None
+
+
+# --- the review advisories of F1 (R3-release-earlyreturn-wakeup-untested, R3-boot-id-real-read-untested) ----------------------------
+
+
+def test_a_release_that_finds_the_file_taken_by_another_process_still_wakes_the_thread_waiting_for_it(tmp_path, monkeypatch):
+    """R3-release-earlyreturn-wakeup-untested: when the outer release finds that the file is no longer this process's (a person removed it and another process
+    took the folder), it leaves the file alone and returns early; the thread parked in ``acquire`` for the end of that release is still woken, asks again and is
+    refused for the other process's lock, instead of waiting for ever. The entry of the folder is gone."""
+    real_read = lock.read_holder
+    outcome = {}
+
+    def read_holder(folder):
+        if "thread" not in outcome:                 # the release is reading who holds the file: another thread asks for the lock now
+            def other():
+                try:
+                    lock.acquire(tmp_path, command="run", run_key="r2")
+                    outcome["state"] = "taken"
+                except lock.RunLockedError as error:
+                    outcome["state"] = error.state
+
+            outcome["thread"] = thread = threading.Thread(target=other, daemon=True)     # a daemon: if the wake-up is lost it must not hold up the test run
+            thread.start()
+            thread.join(timeout=0.5)
+            outcome["waiting"] = thread.is_alive()   # parked on the end of the release, not refused as a thread of this process
+            write_lock(tmp_path, token="0" * 32)       # the file now belongs to another process
+        return real_read(folder)
+
+    held = lock.acquire(tmp_path, command="run", run_key="r1")
+    monkeypatch.setattr(lock, "read_holder", read_holder)
+    lock.release(held)
+    outcome["thread"].join(timeout=10)
+    assert outcome["waiting"] is True and not outcome["thread"].is_alive(), "woken by the early return"
+    assert outcome["state"] == "alive", "then refused for the other process's lock"
+    assert (tmp_path / lock.LOCK_NAME).exists() and lock.read_holder(tmp_path)["token"] == "0" * 32 and lock._HELD == {}
+
+
+def test_the_boot_id_is_read_from_proc_on_linux_and_is_none_elsewhere_or_when_it_says_nothing(tmp_path, monkeypatch):
+    """R3-boot-id-real-read-untested: ``_boot_id`` itself, which the other tests replace. Off Linux it is ``None`` without reading anything; on Linux it is the text of
+    ``/proc/sys/kernel/random/boot_id`` stripped, and ``None`` when that file is empty or cannot be read."""
+    reads = []
+    real = Path.read_text
+
+    def read_text(self, *args, **kwargs):
+        if self.name == "boot_id":
+            reads.append(self.as_posix())
+            return answer[0]() if callable(answer[0]) else answer[0]
+        return real(self, *args, **kwargs)
+
+    def unreadable():
+        raise PermissionError(13, "denied")
+
+    answer = [" 2f0e6c1a-9d3b-4a55-8b0e-0c1d2e3f4a5b\n"]
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(lock.sys, "platform", "win32")
+    assert lock._boot_id() is None and reads == []
+    monkeypatch.setattr(lock.sys, "platform", "linux")
+    assert lock._boot_id() == "2f0e6c1a-9d3b-4a55-8b0e-0c1d2e3f4a5b" and reads == ["/proc/sys/kernel/random/boot_id"]
+    for nothing in ("", "\n", unreadable):
+        answer[0] = nothing
+        assert lock._boot_id() is None, nothing
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the real boot id is a Linux file")
+def test_on_linux_the_boot_id_is_the_one_the_system_reports():
+    assert lock._boot_id() == Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip() != ""

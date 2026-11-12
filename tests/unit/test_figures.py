@@ -8,7 +8,10 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import matplotlib.image as mpimg
@@ -243,3 +246,30 @@ def test_a_hidden_cell_of_the_definition_figure_is_a_gap_and_never_a_number(site
     returns = site["label"]["silence_return"]
     assert [p.get_height() for p in right.patches] == [0.0] + [r["return_share"] for r in returns[1:]]
     assert sum(t.get_text() == "celda oculta" for t in right.texts) == 1 and not any("None" in t.get_text() for t in left.texts + right.texts)
+
+
+DRAW_IN_ANOTHER_PROCESS = """
+import json
+import sys
+import types
+from pathlib import Path
+reader = types.ModuleType("churnrisk.site_export")      # drawing does not depend on the reader of the site files, which pulls in scikit-learn (2 s)
+reader.SiteSetError, reader.read_site = FileNotFoundError, None
+sys.modules["churnrisk.site_export"] = reader
+from churnrisk import figures
+folder, out = Path(sys.argv[1]), Path(sys.argv[2])
+site = {key: json.loads((folder / f"{key}.json").read_text(encoding="utf-8")) for key in ("label", "algorithms")}
+out.mkdir()
+for name, draw, key in (("gain_curve.png", figures.draw_gain_curve, "algorithms"), ("churn_by_cut.png", figures.draw_churn_by_cut, "label")):
+    (out / name).write_bytes(figures._png(draw(site[key])))
+"""
+
+
+def test_a_figure_drawn_in_another_process_later_is_the_same_bytes(site_files, written, tmp_path):
+    """R3-3 (U28): the claim is that a PNG carries no timestamp or program version, so it is the same file in a new process some seconds later (the metadata of
+    a PNG has a one-second clock): two figures drawn here and by a separate ``python`` are byte for byte the same, not only two renderings of one process."""
+    env = {**os.environ, "PYTHONPATH": str(FIGURES_PY.parents[1]), "PYTHONHASHSEED": "random"}
+    done = subprocess.run([sys.executable, "-c", DRAW_IN_ANOTHER_PROCESS, str(site_files), str(tmp_path / "other")], env=env, capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    for name in ("gain_curve.png", "churn_by_cut.png"):
+        assert (tmp_path / "other" / name).read_bytes() == written[2][name], name

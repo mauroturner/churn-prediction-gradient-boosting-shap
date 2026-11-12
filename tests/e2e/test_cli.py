@@ -217,6 +217,19 @@ def test_incompatible_options_exit_2_before_writing(project, args, says):
     assert fingerprint(home) == before and list(Path.cwd().iterdir()) == []
 
 
+def test_docs_sync_without_the_summary_of_results_exits_2_and_leaves_the_readme_as_it_was(project):
+    """R3-docs-sync-missing-summary-untested (F2): with the README there but ``reports/evaluation_summary.md`` not written yet (the ``report``
+    task has not run), ``docs-sync`` says which file is missing and which task writes it, exits 2 and changes nothing."""
+    home = project("launch")
+    readme = quick(home) / "README.md"
+    readme.write_text("# Proyecto\n\n<!-- results:start -->\nviejo\n<!-- results:end -->\n", encoding="utf-8")
+    (quick(home) / "reports" / "evaluation_summary.md").unlink()
+    before = fingerprint(home)
+    result = cli("docs-sync", *Q)
+    assert result.code == 2 and "evaluation_summary.md" in result.err and "corra la tarea report" in result.err and result.out == "", (result.code, result.err)
+    assert fingerprint(home) == before and "viejo" in readme.read_text(encoding="utf-8")
+
+
 def test_a_task_that_fails_exits_1_and_says_why(project, monkeypatch):
     project("cut")
     monkeypatch.setattr(pipeline, "track_cuts", lambda *a, **k: (_ for _ in ()).throw(ValueError("the task's own error")))
