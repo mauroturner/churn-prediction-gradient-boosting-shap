@@ -90,9 +90,9 @@ def test_the_sealed_document_is_the_whole_view_in_canonical_json(cfg):
 
 
 def test_sealed_calculations_receive_only_the_sealed_view():
-    """D19: the modules whose results are sealed never receive the whole configuration (a static test over their source). evaluation.py and
-    sensitivity.py join the list when they exist (U17, U18)."""
-    modules = ("cuts", "features", "split", "baselines", "bgnbd", "model", "explain", "threshold", "scoring")
+    """D19: the modules whose results are sealed never receive the whole configuration (a static test over their source). sensitivity.py joins
+    the list when it exists (U18)."""
+    modules = ("cuts", "features", "split", "baselines", "bgnbd", "model", "explain", "threshold", "scoring", "evaluation", "leakage_demo")
     for name in modules:
         text = (SOURCE_DIR / f"{name}.py").read_text(encoding="utf-8")
         assert "PipelineConfig" not in text and "load_config" not in text, f"{name}.py receives the whole configuration"

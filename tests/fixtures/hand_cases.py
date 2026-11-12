@@ -234,6 +234,20 @@ def bootstrap_case() -> pd.DataFrame:
     })
 
 
+# --- the numbers of a model that loses to RFM (U17, AC25) ----------------------------------------------------------
+
+
+def losing_metrics() -> dict:
+    """The numbers of a model that loses to RFM: what research.md's first look found (AUC 0.769 against 0.784)."""
+    model = {"auc": 0.769, "captured_10": 40.0, "nb_per_1000": 900.0, "ece": 0.05, "bias": 0.03, "brier": 0.20}
+    rfm = {"auc": 0.784, "captured_10": 42.0, "nb_per_1000": 950.0, "ece": 0.02, "bias": 0.01, "brier": 0.19}
+    sensitivity = {f"{0.10 + 0.05 * i:.2f}.{m}": v for i in range(17) for m, v in (("model", 100.0 - i), ("b_star", 100.0))}
+    return {"model": model, "b2_rfm": rfm, "b_star": rfm, "b0_all": {"nb_per_1000": -500.0},
+            "bootstrap": {"b2_rfm.diff": -0.015, "b2_rfm.ci_low": -0.033, "b2_rfm.ci_high": 0.005, "b_star.diff": -0.015, "b_star.ci_low": -0.033,
+                          "b_star.ci_high": 0.005},
+            "cost_sensitivity": sensitivity}
+
+
 # --- monthly tracking with a censored cut (U19, AC24) ---------------------------------------------------------------
 
 

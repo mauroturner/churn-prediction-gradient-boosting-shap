@@ -93,3 +93,123 @@ WHEN EXISTS (SELECT 1 FROM score_reasons WHERE cut_date = NEW.cut_date AND custo
 BEGIN
     SELECT RAISE(ABORT, 'score_reasons es de solo inserción: ese motivo ya está escrito');
 END;
+
+-- The evaluation (plan, sections 5 and 16; D20): every measure of a block (valid_v2 at the launch, the test once its windows closed) by
+-- scope and seal state. The sealed rows of the test are written once; the rows of the validation and every post_seal row are replaced when
+-- the same date is evaluated again.
+
+CREATE TABLE IF NOT EXISTS eval_metrics (
+    scope TEXT NOT NULL CHECK (scope IN ('valid_v2', 'test')),
+    method TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    value REAL,
+    run_key TEXT NOT NULL,
+    as_of_date TEXT NOT NULL,
+    PRIMARY KEY (scope, method, metric, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_per_cut (
+    scope TEXT NOT NULL,
+    cut_date TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    value REAL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (scope, cut_date, metric, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_bootstrap (
+    scope TEXT NOT NULL,
+    comparison TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    diff REAL NOT NULL,
+    ci_low REAL,
+    ci_high REAL,
+    kept INTEGER NOT NULL,
+    discarded INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (scope, comparison, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_criteria (
+    criterion_id TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    name_es TEXT NOT NULL,
+    value REAL,
+    baseline_value REAL,
+    ci_low REAL,
+    ci_high REAL,
+    threshold_es TEXT NOT NULL,
+    passed INTEGER CHECK (passed IN (0, 1)),
+    seen_by_research TEXT NOT NULL,
+    seen_by_planner TEXT NOT NULL,
+    verdict_es TEXT NOT NULL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (criterion_id, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_cost_sensitivity (
+    scope TEXT NOT NULL,
+    break_even REAL NOT NULL,
+    method TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    threshold REAL NOT NULL,
+    net_benefit REAL NOT NULL,
+    nb_per_1000 REAL NOT NULL,
+    contact_share REAL NOT NULL,
+    rows INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (scope, break_even, method, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_gain (
+    scope TEXT NOT NULL,
+    method TEXT NOT NULL,
+    point INTEGER NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    contacted INTEGER NOT NULL,
+    captured INTEGER NOT NULL,
+    share_contacted REAL NOT NULL,
+    share_captured REAL NOT NULL,
+    lift REAL NOT NULL,
+    PRIMARY KEY (scope, method, point, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_roc (
+    scope TEXT NOT NULL,
+    method TEXT NOT NULL,
+    point INTEGER NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    fpr REAL NOT NULL,
+    tpr REAL NOT NULL,
+    PRIMARY KEY (scope, method, point, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_calibration (
+    scope TEXT NOT NULL,
+    method TEXT NOT NULL,
+    bin INTEGER NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    p_mean REAL,
+    observed REAL,
+    rows INTEGER NOT NULL,
+    PRIMARY KEY (scope, method, bin, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS feature_importance (
+    scope TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    seal_state TEXT NOT NULL CHECK (seal_state IN ('sealed', 'post_seal')),
+    mean_abs_shap REAL NOT NULL,
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (scope, feature, seal_state)
+);
+
+CREATE TABLE IF NOT EXISTS eval_leakage (
+    variable TEXT PRIMARY KEY,
+    variable_es TEXT NOT NULL,
+    auc_valid_v2 REAL NOT NULL,
+    note_es TEXT NOT NULL,
+    run_key TEXT NOT NULL
+);

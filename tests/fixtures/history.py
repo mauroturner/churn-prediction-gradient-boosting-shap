@@ -1,6 +1,7 @@
 """The quick run of the whole plan on the standard fixture, composed from the functions of the tasks (U16 onwards): for each delivery in order,
-its load and its cuts, ``fit_model`` (the launch trains and seals; every later run reuses the frozen model) and the scores of its cut. It is the
-sealed run of the tests: the test cuts are touched once, here. ``pipeline.py`` (U25) runs the same steps as tasks; until then this helper is
+its load and its cuts, ``fit_model`` (the launch trains and seals; every later run reuses the frozen model), the scores of its cut and
+``evaluate`` (V2 at the launch; the test once, in the run whose date closes its windows). It is the sealed run of the tests: the test cuts are
+touched once, here. ``pipeline.py`` (U25) runs the same steps as tasks; until then this helper is
 what composes them, and the session fixture ``quick_history`` builds it once (D34).
 
 The configuration is the quick one (``config/pipeline.quick.toml``: one candidate, 50 iterations, 200 resamples) with every path inside the
@@ -22,6 +23,7 @@ from churnrisk.cuts import build_cuts
 from churnrisk.deliveries import DeliverySpec, delivery_plan, delivery_rows
 from churnrisk.launch import fit_model, load_registered
 from churnrisk.registry import sealed_view
+from churnrisk.reporting import evaluate
 from churnrisk.scoring import RunMeta, ScoreResult, score_cut
 from churnrisk.warehouse import connect, load_delivery
 
@@ -49,9 +51,11 @@ class RunRecord:
     run_key: str
     fit: dict
     score: ScoreResult | None
+    evaluation: dict
     scores: list[tuple]
     reasons: list[tuple]
     seal: bytes
+    warehouse: Path          # a copy of the warehouse as the run left it (read it; a test that writes copies it again)
 
 
 @dataclass
@@ -70,14 +74,15 @@ def _table(conn: sqlite3.Connection, table: str) -> list[tuple]:
     return conn.execute(f"SELECT * FROM {table} ORDER BY 1, 2, 3").fetchall()
 
 
-def run_one(conn: sqlite3.Connection, cfg: PipelineConfig, view: SealedConfig, spec: DeliverySpec, run_key: str) -> tuple[dict, ScoreResult | None]:
-    """``fit_model`` and the scores of the run's cut, on a warehouse where the run's delivery is loaded and its cuts are built."""
+def run_one(conn: sqlite3.Connection, cfg: PipelineConfig, view: SealedConfig, spec: DeliverySpec, run_key: str) -> tuple[dict, ScoreResult | None, dict]:
+    """``fit_model``, the scores of the run's cut and ``evaluate``, on a warehouse where the run's delivery is loaded and its cuts are built."""
     fit = fit_model(conn, cfg, run_key=run_key, as_of=spec.as_of, source_sha256=view.source_sha256)
     score = None
     if spec.cut is not None:
         registered = load_registered(conn, cfg)
         score = score_cut(conn, spec.cut, registered.bundle, RunMeta(run_key, spec.as_of, registered.model_version, registered.threshold), view)
-    return fit, score
+    evaluation = evaluate(conn, cfg, run_key=run_key, as_of=spec.as_of, source_sha256=view.source_sha256)
+    return fit, score, evaluation
 
 
 def build_history(folder: Path, cfg: PipelineConfig, source_sha256: str, launch_warehouse: Path, frame: pd.DataFrame, entries: dict,
@@ -95,11 +100,34 @@ def build_history(folder: Path, cfg: PipelineConfig, source_sha256: str, launch_
             if index:
                 load_delivery(conn, delivery_rows(spec, frame), spec, run_key, sha256=entries[spec.delivery_id].sha256)
                 build_cuts(conn, spec.as_of, view, run_key)
-            fit, score = run_one(conn, cfg, view, spec, run_key)
-            history.runs.append(RunRecord(spec, run_key, fit, score, _table(conn, "model_scores"), _table(conn, "score_reasons"),
-                                          cfg.paths.seal.read_bytes()))
+            fit, score, evaluation = run_one(conn, cfg, view, spec, run_key)
+            scores, reasons = _table(conn, "model_scores"), _table(conn, "score_reasons")
         finally:
             conn.close()
+        kept = history.folder / "after" / f"{run_key}.sqlite"
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cfg.paths.warehouse, kept)
+        history.runs.append(RunRecord(spec, run_key, fit, score, evaluation, scores, reasons, cfg.paths.seal.read_bytes(), kept))
         if spec.delivery_id == until:
             break
     return history
+
+
+SEALED_TABLES = ("eval_metrics", "eval_per_cut", "eval_bootstrap", "eval_cost_sensitivity", "eval_gain", "eval_roc", "eval_calibration",
+                 "feature_importance", "eval_criteria")
+
+
+def without_sealed_rows(history: History, folder: Path, **sections) -> PipelineConfig:
+    """A copy of the history's last warehouse and of its seal with the sealed rows of the evaluation gone, as a rebuild from scratch leaves
+    them, and the quick configuration with `sections` replaced."""
+    cfg = quick_config(folder, **sections)
+    cfg.paths.seal.parent.mkdir(parents=True)
+    shutil.copy2(history.cfg.paths.seal, cfg.paths.seal)
+    shutil.copy2(history.warehouse, cfg.paths.warehouse)
+    conn = connect(cfg.paths.warehouse)
+    try:
+        for table in SEALED_TABLES:
+            conn.execute(f"DELETE FROM {table} WHERE seal_state = 'sealed'")
+    finally:
+        conn.close()
+    return cfg

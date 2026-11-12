@@ -101,7 +101,7 @@ LAUNCH_KEYS = (
     "b_star", "bgnbd", "valid_scores_sha256",
 )
 TEST_KEYS = ("run_key", "as_of", "config_sha256", "criteria", "metrics", "per_cut", "variants")
-_NOT_COMPARED = ("run_key",)          # what a repetition may change: the run that computed the values
+_NOT_COMPARED = ("run_key", "as_of")  # what a repetition may change: the run that computed the values and its date (the values do not depend on it)
 # what the system answers to a hard link on a file system that has none (FAT and exFAT, some network shares); any other error is a real one
 _NO_HARD_LINKS = frozenset({errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.ENOSYS})
 _WINDOWS_NO_HARD_LINKS = frozenset({1, 50})      # ERROR_INVALID_FUNCTION and ERROR_NOT_SUPPORTED
