@@ -24,18 +24,32 @@ TRACKING_COLUMNS = ("as_of_date", "cut_date", "scored", "contacted", "returned",
                     "expected_churners", "is_censored")
 
 
+def customer_returns(scores: pd.DataFrame, purchase_days: pd.DataFrame, as_of: date, horizon_days: int) -> pd.DataFrame:
+    """For each scored customer (``cut_date``, ``customer_id``), whether it bought again by `as_of` (a net purchase day in
+    ``[c, min(as_of, c + N - 1)]`` of `purchase_days`) and its first such day: the one rule of a return, for the tracking and the star model."""
+    out = scores[["cut_date", "customer_id"]].copy()
+    first = pd.Series(pd.NaT, index=out.index, dtype="datetime64[ns]")
+    days = purchase_days[["customer_id", "day"]]
+    for cut, part in out.groupby("cut_date", sort=True):
+        seen = min(as_of, cut + timedelta(days=horizon_days - 1))
+        window = days[(days["day"] >= pd.Timestamp(cut)) & (days["day"] <= pd.Timestamp(seen))].groupby("customer_id")["day"].min()
+        first.loc[part.index] = part["customer_id"].map(window).to_numpy()
+    out["first_return_date"] = first
+    out["returned"] = first.notna().to_numpy()
+    return out
+
+
 def track_counts(scores: pd.DataFrame, purchase_days: pd.DataFrame, labels: pd.Series | None, as_of: date, horizon_days: int,
                  last_date: date) -> pd.DataFrame:
     """The tracking of each cut of `scores` (``cut_date``, ``customer_id``, ``risk``, ``is_contact``) on `as_of`, one row per cut in order.
     `purchase_days` are the net purchase days known on `as_of` (``customer_id``, ``day``); `labels` the ``churned`` of each ``(cut_date,
     customer_id)`` whose window has closed (None or missing for the others)."""
     rows = []
-    days = purchase_days[["customer_id", "day"]]
-    for cut, part in scores.sort_values(["cut_date", "customer_id"]).groupby("cut_date", sort=True):
+    ordered = scores.sort_values(["cut_date", "customer_id"]).reset_index(drop=True)
+    returns = customer_returns(ordered, purchase_days, as_of, horizon_days)
+    for cut, part in ordered.groupby("cut_date", sort=True):
         end = cut + timedelta(days=horizon_days - 1)
-        seen = min(as_of, end)
-        window = days[(days["day"] >= pd.Timestamp(cut)) & (days["day"] <= pd.Timestamp(seen))]
-        returned = part["customer_id"].isin(set(window["customer_id"])).to_numpy()
+        returned = returns.loc[part.index, "returned"].to_numpy()
         contact = part["is_contact"].astype(bool).to_numpy()
         closed = as_of >= end
         churned = contacted_churned = None

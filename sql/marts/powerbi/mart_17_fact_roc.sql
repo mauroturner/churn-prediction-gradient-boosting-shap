@@ -1,0 +1,5 @@
+-- The ROC curve of each method (plan, section 19; D25, D26). Built by export.build_powerbi_marts inside its transaction, after the reference tables (ref_*).
+
+DROP TABLE IF EXISTS star_fact_roc;
+
+CREATE TABLE star_fact_roc AS SELECT scope, method AS method_key, point, fpr, tpr, seal_state FROM eval_roc ORDER BY scope, method, point, seal_state;
