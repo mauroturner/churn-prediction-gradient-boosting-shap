@@ -5,6 +5,12 @@ never a block written by hand; the README says the unfavourable verdicts («no s
 the model card has the contents the plan lists, every verdict as the summary writes it, the memory counters and the suite's limit. These
 tests read the versioned Markdown and the versioned reports (``reports/`` holds the outputs of U29) and run nothing, except the ``docs-sync``
 tests, which work on a copy of the configuration in a temporary folder.
+
+U31: every decision has its seven fields; the test count the documents give is the one of the session's collection; every memory figure
+names its counter; every test the plan names exists; the results block is the sealed summary; the dictionary covers the 8 source columns
+and the 16 features, and its tables are the ones ``docs-sync`` writes from the semantic model; the runbook has R1 to R14; the step by step
+names every unit and cites commits that exist; the links resolve; every advisory of the native reviews has its status and the README's open
+ones are the review file's; and the root rows of project 04 carry the real figures (plan, sections 25 and 30; D37).
 """
 
 from __future__ import annotations
@@ -12,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -118,3 +126,267 @@ def test_docs_sync_puts_the_summary_one_level_down_under_the_readme_heading(proj
                                                   f"#### Análisis posterior al sello\n\n- C05\n{RESULTS_END}\n\n## Después\n")
     assert cli.main(["docs-sync", "--config", config]) == 0
     assert capsys.readouterr().out.splitlines() == ["README.md ya estaba al día"]
+
+
+# --- U31: the decisions, the stated test count, the memory figures, the tests the plan names, the dictionary, the runbook, the step by step,
+# the advisories and the root rows (AC40) ------------------------------------------------------------------------------------------------
+
+NAMED_TEST = re.compile(r"(tests/[\w/]+\.py)?::(test_\w+)")
+# Named by the plan (section 24.2, the class «un identificador en un archivo o en una imagen publicada») and never written by the unit that
+# owed it; U31 may not write under tests/integration/, so the gap stays visible here and in docs/review-advisories.md until a correction
+# writes it (D88). The test fails if anything else is missing, and once this one exists.
+KNOWN_MISSING = ["tests/integration/test_privacy.py::test_no_fixture_customer_id_in_any_versioned_byte_or_run_log"]
+DECISION_FIELDS = ("Contexto", "Opciones", "Decisión", "Motivo", "Afecta", "Quién", "Estado")   # AC40: every decision, D01 to the last
+COUNTERS = ("PeakWorkingSetSize", "PeakPagefileUsage", "ru_maxrss", "conjunto de trabajo", "memoria comprometida")   # by API name or what it counts
+MEMORY_FIGURE = re.compile(r"\d[\d.]*(?:,\d+)?\s?(?:MB|GB|MiB|GiB)\b")
+MEMORY_WORDS = re.compile(r"pico|peak_|conjunto de trabajo|comprometid|memoria", re.IGNORECASE)   # a file or a folder's size is not one
+SENTENCE_END = re.compile(r"(?<=\.)\s+")
+LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)")
+IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
+UNITS = [f"U{n:02d}" for n in range(1, 32)]
+STATUSES = ("corregida", "dejada con evidencia", "abierta")
+DOCS = ("data-dictionary.md", "runbook.md", "paso-a-paso.md", "review-advisories.md", "decisions.md")
+
+
+def read(project_root: Path, name: str) -> str:
+    return (project_root / "docs" / name).read_text(encoding="utf-8")
+
+
+def root_rows(project_root: Path) -> str:
+    """The section of project 04 in the root ``SITE-UPDATES.md``, up to the next project or the end."""
+    text = (project_root.parent / "SITE-UPDATES.md").read_text(encoding="utf-8")
+    assert text.count("\n## 04 ") == 1, "SITE-UPDATES.md has no section for project 04"
+    return re.split(r"\n## 0\d ", text.split("\n## 04 ")[1])[0]
+
+
+def fast_suite_count(request: pytest.FixtureRequest, project_root: Path) -> int:
+    """The number of tests of the fast suite. When this session is the fast suite itself (the test paths of the configuration, its default
+    mark expression and no selection), its own collection; otherwise ``pytest --collect-only`` in another process, which costs a few seconds."""
+    from tests.fixtures.suite_budget import is_full_default_selection
+
+    if is_full_default_selection(request.config):
+        return len(request.session.items)
+    done = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"], cwd=project_root,
+                          capture_output=True, text=True, timeout=300, encoding="utf-8")
+    found = re.search(r"^(\d+)(?:/\d+)? tests? collected", done.stdout, flags=re.MULTILINE)
+    assert found, done.stdout[-500:] + done.stderr[-500:]
+    return int(found.group(1))
+
+
+def named_in_plan(plan: str) -> list[tuple[str, str]]:
+    """Every test the plan names, as (file, function): a bare ``::name`` belongs to the file named last before it."""
+    found, last = [], None
+    for match in NAMED_TEST.finditer(plan):
+        last = match.group(1) or last
+        assert last is not None, match.group(0)
+        found.append((last, match.group(2)))
+    return found
+
+
+def test_every_test_named_in_the_plan_exists(project_root: Path) -> None:
+    """AC40: every test plan sections 24 and 27 name (the RED of each unit and the named defect classes) is a test function of that file."""
+    import ast
+
+    named = named_in_plan((project_root / "docs" / "plan.md").read_text(encoding="utf-8"))
+    assert len(named) >= 100   # the plan does name its tests: the check is not vacuous
+    defined: dict[str, set[str]] = {}
+    missing = []
+    for path, name in named:
+        if path not in defined:
+            file = project_root / path
+            tree = ast.parse(file.read_text(encoding="utf-8")) if file.is_file() else ast.Module(body=[], type_ignores=[])
+            defined[path] = {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        if name not in defined[path]:
+            missing.append(f"{path}::{name}")
+    assert sorted(set(missing)) == KNOWN_MISSING
+
+
+def test_every_decision_has_seven_fields(project_root: Path) -> None:
+    text = read(project_root, "decisions.md")
+    entries = re.split(r"^## (?=D\d+ )", text, flags=re.MULTILINE)[1:]
+    numbers = [int(re.match(r"D(\d+)", e).group(1)) for e in entries]
+    assert numbers == list(range(1, len(numbers) + 1)) and len(numbers) >= 88   # no gap and no repeat, up to U31's own
+    missing = [f"D{n:02d}: {field}" for n, entry in zip(numbers, entries, strict=True) for field in DECISION_FIELDS if f"- **{field}**: " not in entry]
+    assert missing == []
+    states = {f"D{n:02d}": re.search(r"^- \*\*Estado\*\*: (.+)$", e, flags=re.MULTILINE).group(1) for n, e in zip(numbers, entries, strict=True)}
+    assert [d for d, s in states.items() if not re.match(r"(vigente|pendiente del dueño|reemplazada por D\d+)", s)] == []
+
+
+def test_stated_test_count_matches_the_session_collection(request: pytest.FixtureRequest, project_root: Path, readme: str, model_card: str) -> None:
+    """B3 of project 02 and B5 of project 03 (RNF14): the documents said one test count after a change had moved it. The count is that of the
+    collection, in the README, the model card and the root rows; the seconds next to it are measured and written by hand (AC41)."""
+    stated = f"{fast_suite_count(request, project_root):,}".replace(",", ".") + " pruebas"
+    assert re.findall(r"\b\d{1,3}(?:\.\d{3})* pruebas\b", readme) == [stated]   # the README states one count: this one
+    [suite] = re.findall(r"^- \*\*AC41, la suite rápida\*\*.*$", model_card, flags=re.MULTILINE)
+    assert f"para {stated}" in suite
+    assert stated in root_rows(project_root)
+
+
+def test_every_memory_figure_names_its_counter(project_root: Path, readme: str, model_card: str) -> None:
+    """RNF03 and D39 (lesson A3 of project 02): a memory figure without its counter cannot be compared with another. Every sentence of the
+    documents that gives a memory figure in MB or GB names the counter, by its API name or by what it counts."""
+    absent = [f"docs/{name}" for name in DOCS if not (project_root / "docs" / name).is_file()]
+    assert absent == [], "every document of AC40 exists"
+    documents = {"README.md": readme, "docs/model-card.md": model_card, "SITE-UPDATES.md (04)": root_rows(project_root)}
+    documents |= {f"docs/{name}": read(project_root, name) for name in DOCS}
+    figures, unnamed = 0, []
+    for name, text in documents.items():
+        for line in text.splitlines():
+            for sentence in SENTENCE_END.split(line):
+                if MEMORY_FIGURE.search(sentence) and MEMORY_WORDS.search(sentence):
+                    figures += 1
+                    if not any(counter in sentence for counter in COUNTERS):
+                        unnamed.append(f"{name}: {sentence.strip()[:160]}")
+    assert unnamed == []
+    assert figures >= 10   # the documents do state memory figures: the check is not vacuous
+
+
+def test_results_block_matches_summary(project_root: Path, readme: str, summary: dict) -> None:
+    """Plan 24.2, the class «documentación sin sincronizar»: the block is the summary of the sealed run, its run and its date included."""
+    from churnrisk.docs_sync import readme_block
+
+    block = readme.split(RESULTS_START)[1].split(RESULTS_END)[0].strip("\n")
+    assert block == readme_block((project_root / "reports" / "evaluation_summary.md").read_text(encoding="utf-8")).strip("\n")
+    assert f"Corrida {summary['run_key']} del {summary['as_of']}." in block and "Estado: sealed." in block
+
+
+def test_the_dictionary_covers_the_source_and_the_features_and_its_tables_are_the_generated_ones(project_root: Path) -> None:
+    import pyarrow.parquet as pq
+
+    from churnrisk.dashboard.semantic_model import MODEL, arrow_schema
+    from churnrisk.docs_sync import COLUMNS_END, COLUMNS_START, render_dictionary_tables
+    from churnrisk.schema import FEATURE_COLUMNS, SOURCE_COLUMNS, WORKBOOK_COLUMNS
+
+    text = read(project_root, "data-dictionary.md")
+    source = text.split("\n## Archivo de origen\n")[1].split("\n## ")[0]
+    rows = re.findall(r"^\| `([^`]+)` \| `([^`]+)` \| ([^|]+?) \| ", source, flags=re.MULTILINE)
+    assert [(w, s) for w, s, _use in rows] == list(zip(WORKBOOK_COLUMNS, SOURCE_COLUMNS, strict=True))   # the 8 columns, in order
+    assert all(use.strip() for _w, _s, use in rows)
+    features = text.split("\n## Variables\n")[1].split("\n## ")[0]
+    documented = re.findall(r"^\| `([a-z_0-9]+)` \| [^|]+ \| ([^|]+) \| ", features, flags=re.MULTILINE)
+    numeric = [c for c in FEATURE_COLUMNS if c != "country_group"]
+    assert [name for name, _unit in documented] == numeric and all(unit.strip() for _name, unit in documented)   # the 16, each with its unit
+    assert text.count(COLUMNS_START) == 1 and text.count(COLUMNS_END) == 1
+    block = text.split(COLUMNS_START)[1].split(COLUMNS_END)[0]
+    assert block.strip() == render_dictionary_tables(MODEL).strip()   # what docs-sync writes
+    for table in MODEL.tables:
+        section = block.split(f"### `{table.name}`\n")[1].split("\n### ")[0]
+        listed = re.findall(r"^\| `([a-z_0-9]+)` \| [^|]+ \| ([^|]+) \| ", section, flags=re.MULTILINE)
+        assert tuple(name for name, _unit in listed) == table.column_names and all(unit.strip() for _name, unit in listed), table.name
+        if table.private:   # the private fact is in the dictionary too, marked as not versioned; its file is never in the repository
+            assert "no se versiona" in section and arrow_schema(table).names == list(table.column_names), table.name
+        else:
+            assert pq.read_schema(project_root / "outputs" / "powerbi" / f"{table.name}.parquet").names == list(table.column_names), table.name
+
+
+def _sync_project(project_root: Path, tmp_path: Path, dictionary: bool) -> str:
+    (tmp_path / "config").mkdir()
+    shutil.copyfile(project_root / "config" / "pipeline.toml", tmp_path / "config" / "pipeline.toml")
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "evaluation_summary.md").write_text("## Resultados\n\n| C01 | no supera |\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(f"# P\n\n{RESULTS_START}\nviejo\n{RESULTS_END}\n", encoding="utf-8")
+    if dictionary:   # next to the figures folder of the configuration (docs/figures), as docs/ is in the project
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "data-dictionary.md").write_text("# D\n\n<!-- columns:start -->\nviejo\n<!-- columns:end -->\n\nal final\n",
+                                                              encoding="utf-8")
+    return str(tmp_path / "config" / "pipeline.toml")
+
+
+def test_docs_sync_writes_the_dictionary_tables_and_a_second_run_changes_nothing(project_root: Path, tmp_path: Path, capsys) -> None:
+    from churnrisk import cli
+    from churnrisk.dashboard.semantic_model import MODEL
+
+    config = _sync_project(project_root, tmp_path, dictionary=True)
+    assert cli.main(["docs-sync", "--config", config]) == 0
+    assert capsys.readouterr().out.splitlines() == ["README.md actualizado", "data-dictionary.md actualizado"]
+    from churnrisk.docs_sync import render_dictionary_tables
+
+    text = (tmp_path / "docs" / "data-dictionary.md").read_text(encoding="utf-8")
+    assert render_dictionary_tables(MODEL).strip() in text and "viejo" not in text and text.endswith("al final\n")
+    assert "| C01 | no supera |" in (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert cli.main(["docs-sync", "--config", config]) == 0
+    assert capsys.readouterr().out.splitlines() == ["README.md ya estaba al día", "data-dictionary.md ya estaba al día"]
+
+
+def test_docs_sync_without_a_dictionary_still_syncs_only_the_readme(project_root: Path, tmp_path: Path, capsys) -> None:
+    """The command as it was before U31: with no dictionary next to the figures folder, it writes the README block and says only that."""
+    from churnrisk import cli
+
+    config = _sync_project(project_root, tmp_path, dictionary=False)
+    assert cli.main(["docs-sync", "--config", config]) == 0
+    assert capsys.readouterr().out.splitlines() == ["README.md actualizado"]
+    assert not (tmp_path / "docs").exists()
+
+
+def test_the_runbook_has_r1_to_r14_and_every_reference_of_the_code_points_to_one(project_root: Path) -> None:
+    text = read(project_root, "runbook.md")
+    entries = re.split(r"^## (?=R\d+ )", text, flags=re.MULTILINE)[1:]
+    assert [entry.split()[0] for entry in entries] == [f"R{n}" for n in range(1, 15)]   # plan, section 25
+    for entry in entries:
+        assert "**Síntoma.**" in entry and "**Qué hacer.**" in entry, entry.splitlines()[0]
+    sources = [*sorted((project_root / "src" / "churnrisk").rglob("*.py")), *sorted((project_root / "airflow").rglob("*.py")),
+               project_root / "airflow" / "docker-compose.yaml"]
+    cited = {int(n) for path in sources for n in re.findall(r"runbook(?:\.md)?,? R(\d+)", path.read_text(encoding="utf-8"))}
+    assert cited and cited <= set(range(1, 15)), cited
+
+
+def test_the_step_by_step_names_every_unit_and_cites_commits_that_exist(project_root: Path) -> None:
+    text = read(project_root, "paso-a-paso.md")
+    assert [unit for unit in UNITS if not re.search(rf"\b{unit}\b", text)] == []
+    hashes = sorted(set(re.findall(r"`([0-9a-f]{7})`", text)))
+    assert len(hashes) >= 50
+    if shutil.which("git") is None or not (project_root.parent / ".git").exists():
+        pytest.skip("there is no Git history to check the commits against")
+    done = subprocess.run(["git", "cat-file", "--batch-check"], cwd=project_root, input="".join(f"{h}^{{commit}}\n" for h in hashes),
+                          capture_output=True, text=True)
+    assert [line for line in done.stdout.splitlines() if line.endswith("missing")] == []
+
+
+def test_relative_links_and_images_point_to_files_that_exist(project_root: Path) -> None:
+    broken = []
+    for document in [project_root / "README.md", *sorted((project_root / "docs").glob("*.md"))]:
+        text = document.read_text(encoding="utf-8")
+        for target in [*LINK.findall(text), *IMAGE.findall(text)]:
+            if not re.match(r"^(https?:|mailto:)", target) and not (document.parent / target).resolve().exists():
+                broken.append(f"{document.name}: {target}")
+    assert broken == []
+
+
+def advisories(text: str) -> dict[tuple[str, str], str]:
+    """Every advisory of the review file by (section key, id), with its status: the bold words after «Estado:», or an empty string."""
+    found: dict[tuple[str, str], str] = {}
+    for part in re.split(r"^## ", text, flags=re.MULTILINE)[1:]:
+        key = part.split()[0]
+        for block in re.split(r"^(?=- \*\*)", part, flags=re.MULTILINE)[1:]:
+            ident = re.match(r"- \*\*([^*]+)\*\*", block).group(1)
+            status = re.search(r"^  - Estado: \*\*([^*]+)\*\*", block, flags=re.MULTILINE)
+            assert (key, ident) not in found, (key, ident)
+            found[(key, ident)] = status.group(1) if status else ""
+    return found
+
+
+def test_open_advisories_match_review_file(project_root: Path, readme: str) -> None:
+    """AC40 and B5 of project 03's evaluation: every advisory of every native review has its status in ``docs/review-advisories.md`` (fixed,
+    with its commit; left with evidence; or open), and the advisories the README calls open are the ones that file calls open."""
+    text = read(project_root, "review-advisories.md")
+    found = advisories(text)
+    assert len(found) >= 150 and [key for key, status in found.items() if status not in STATUSES] == []
+    fixed = [block for block in re.split(r"^(?=- \*\*)", text, flags=re.MULTILINE) if "Estado: **corregida**" in block]
+    assert fixed and all(re.search(r"`[0-9a-f]{7}`", block.split("Estado: **corregida**")[1].splitlines()[0]) for block in fixed)
+    opened = sorted(f"{key}/{ident}" for (key, ident), status in found.items() if status == "abierta")
+    [stated] = re.findall(r"^Advertencias abiertas: (.+)$", readme, flags=re.MULTILINE)
+    assert sorted(re.findall(r"`([^`]+)`", stated)) == opened, stated
+
+
+def test_the_root_rows_of_project_04_carry_the_real_figures(project_root: Path) -> None:
+    rows = root_rows(project_root)
+    table = [line for line in rows.split("### ")[0].splitlines() if re.match(r"^\| \d+ \|", line)]
+    assert [int(line.split("|")[1]) for line in table] == list(range(1, 17))   # plan, section 30: the sixteen rows
+    for figure in ("0,745", "0,746", "0,749", "0,752", "209,7", "238,9", "3.935", "34,4 %", "43,2 %", "31,7 %", "0,55", "312,2 s", "1.868,5 MB",
+                   "3.709,2 MB", "1.044.848"):
+        assert figure in rows, figure
+    assert rows.count("no supera") >= 2 and "C06" in rows and "C08" in rows and "pendiente" in rows and "@gmail" not in rows
+    expansion = (project_root.parent / "LANDING-EXPANSION.md").read_text(encoding="utf-8")
+    marked = {line.split("|")[1].strip() for line in expansion.splitlines() if line.startswith("| ") and "04 Clientes que se van" in line}
+    assert marked == {"SciPy", "NumPy", "SQLite", "Apache Parquet con pyarrow", "matplotlib", "pytest", "PostgreSQL", "openpyxl", "lifetimes",
+                      "SHAP"}   # D37: the ones this project uses, and SHAP, its one new row

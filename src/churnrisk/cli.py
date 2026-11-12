@@ -77,7 +77,8 @@ def build_parser(task_ids: tuple[str, ...] | None = None) -> argparse.ArgumentPa
                          help="irregular_gaps: la baja depende de lo irregular de las compras (control positivo); rfm_only: solo de RFM (control negativo)")
 
     commands.add_parser("figures", parents=[common], help="dibuja las siete figuras de la documentación desde los archivos del sitio verificados de la última corrida")
-    commands.add_parser("docs-sync", parents=[common], help="copia el resumen de resultados (reports/evaluation_summary.md) en el bloque de resultados del README, con sus títulos un nivel más abajo")
+    commands.add_parser("docs-sync", parents=[common], help="copia el resumen de resultados (reports/evaluation_summary.md) en el bloque de resultados del README, con sus títulos un nivel más abajo, "
+                            "y las tablas del modelo en el diccionario de datos (docs/data-dictionary.md), si existe")
     return parser
 
 
@@ -155,7 +156,8 @@ def _make_fixture(args: argparse.Namespace) -> int:
 
 
 def _docs_sync(cfg) -> int:
-    from churnrisk.docs_sync import sync_readme
+    from churnrisk.dashboard.semantic_model import MODEL
+    from churnrisk.docs_sync import dictionary_path, sync_dictionary, sync_readme
 
     summary = Path(cfg.paths.reports_dir) / SUMMARY_MD
     readme = Path(cfg.paths.readme)
@@ -166,6 +168,9 @@ def _docs_sync(cfg) -> int:
         raise _UsageError(f"no existe {summary}: corra la tarea report antes de docs-sync. No se escribió nada.")
     changed = sync_readme(readme, summary)   # the summary's headings one level down, under the README's own (D87)
     _say(f"{readme.name} actualizado" if changed else f"{readme.name} ya estaba al día")
+    dictionary = dictionary_path(cfg.paths.figures_dir)   # docs/ in the project; without a dictionary only the README is written, as before U31
+    if dictionary.is_file():
+        _say(f"{dictionary.name} actualizado" if sync_dictionary(dictionary, MODEL) else f"{dictionary.name} ya estaba al día")
     return EXIT_OK
 
 
