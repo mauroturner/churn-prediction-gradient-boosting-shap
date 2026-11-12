@@ -324,6 +324,28 @@ def quick_history(tmp_path_factory: pytest.TempPathFactory, cut_history, fixture
 
 
 @pytest.fixture(scope="session")
+def star_files(tmp_path_factory: pytest.TempPathFactory, quick_history):
+    """``(cfg, out_dir, private_dir, paths, meta, warehouse)``: the star model of the quick history's last run, exported once per session on a
+    copy of its warehouse (D72). The star model's contract, the HTML design and the site export read it; a test that writes copies it."""
+    from churnrisk.dashboard.semantic_model import MODEL
+    from churnrisk.export import ExportMeta, export_star_schema
+    from churnrisk.warehouse import connect
+
+    folder = tmp_path_factory.mktemp("star")
+    warehouse = folder / "warehouse.sqlite"
+    shutil.copy2(quick_history.warehouse, warehouse)
+    out_dir, private_dir = folder / "outputs" / "powerbi", folder / "outputs" / "private"
+    last = quick_history.runs[-1]
+    meta = ExportMeta(last.run_key, last.spec.as_of, quick_history.view.source_sha256)
+    conn = connect(warehouse)
+    try:
+        paths = export_star_schema(conn, out_dir, private_dir, MODEL, meta, quick_history.cfg)
+    finally:
+        conn.close()
+    return quick_history.cfg, out_dir, private_dir, paths, meta, warehouse
+
+
+@pytest.fixture(scope="session")
 def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
     """``(fetch result, frame, report)``: the real canonical lines, built once per session from a copy of the pinned zip in a folder of the
     session's own (mark real_data only; the zip is never downloaded again). Reading the real workbook takes about 40 s, so every real_data

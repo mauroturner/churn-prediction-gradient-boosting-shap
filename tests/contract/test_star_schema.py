@@ -18,20 +18,10 @@ from churnrisk.warehouse import CheckFailedError, connect
 
 
 @pytest.fixture(scope="module")
-def star_export(quick_history, tmp_path_factory):
-    """The star model of the quick history's last run, exported once for this module: ``(cfg, out_dir, private_dir, paths, meta)``."""
-    folder = tmp_path_factory.mktemp("star")
-    warehouse = folder / "warehouse.sqlite"
-    shutil.copy2(quick_history.warehouse, warehouse)
-    out_dir, private_dir = folder / "outputs" / "powerbi", folder / "outputs" / "private"
-    last = quick_history.runs[-1]
-    meta = ExportMeta(last.run_key, last.spec.as_of, quick_history.view.source_sha256)
-    conn = connect(warehouse)
-    try:
-        paths = export_star_schema(conn, out_dir, private_dir, MODEL, meta, quick_history.cfg)
-    finally:
-        conn.close()
-    return quick_history.cfg, out_dir, private_dir, paths, meta, warehouse
+def star_export(star_files):
+    """The star model of the quick history's last run, exported once per session (``star_files``): ``(cfg, out_dir, private_dir, paths, meta,
+    warehouse)``."""
+    return star_files
 
 
 def read(star_export, name: str):
