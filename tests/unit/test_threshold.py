@@ -189,3 +189,33 @@ def test_a_gain_curve_whose_first_point_would_hold_no_customer_is_refused_before
         gain_curve(np.array([0.9]), np.array([1]), 3_000_000_000)
     small = gain_curve(np.array([0.9, 0.1, 0.5]), np.array([1, 0, 1]), 10)
     assert small["contacted"].min() == 1 and len(small) == 10 and small["lift"].notna().all()
+
+
+# --- review coverage (L48: R3-check-guards-untested, R3-misc-validation-untested) ---------------------------------------------------
+
+
+@pytest.mark.parametrize(("p", "y", "message"), [
+    ([0.1, 0.2], [1], "mismo largo"),
+    ([[0.1], [0.2]], [[1], [0]], "mismo largo"),
+    ([], [], "no hay clientes"),
+    ([0.1, np.nan], [1, 0], "no son finitos"),
+    ([0.1, np.inf], [1, 0], "no son finitos"),
+    ([0.1, 0.2], [1, 2], "0 o 1"),
+])
+def test_scores_and_labels_are_checked_before_any_threshold_or_curve(cfg, p, y, message):
+    """``threshold._check`` guards every entry point: the threshold, the gain curve and the top share."""
+    view = SealedConfig.of(cfg, SHA)
+    for call in (lambda: choose_threshold(p, y, Costs.from_view(view), threshold_grid(view.costs)), lambda: gain_curve(p, y, 10),
+                 lambda: top_share_capture(p, y, np.zeros(np.shape(y)), 0.1)):
+        with pytest.raises(ValueError, match=message):
+            call()
+
+
+@pytest.mark.parametrize("share", [0.0, -0.1, 1.01, 2.0])
+def test_the_top_share_must_be_in_zero_one_and_every_row_needs_its_cut(share):
+    p, y = np.array([0.9, 0.1, 0.5]), np.array([1, 0, 1])
+    with pytest.raises(ValueError, match=r"la proporción debe estar en \(0, 1\]"):
+        top_share_capture(p, y, np.zeros(3), share)
+    with pytest.raises(ValueError, match="cada fila necesita su corte"):
+        top_share_capture(p, y, np.zeros(2), 0.5)
+    assert top_share_capture(p, y, np.zeros(3), 1.0) == (2, 3)

@@ -153,3 +153,25 @@ def test_the_simulation_is_seeded_and_a_customer_without_repeats_is_alive():
     assert p_alive(SIMULATED, [0], [0], [300])[0] == 1.0
     with pytest.raises(ValueError, match="clientes"):
         fit_bgnbd([], [], [])
+
+
+@pytest.mark.parametrize(("lbfgs_x", "start_is_zero"), [(np.array([0.5, -0.2, 0.1, 0.3]), False), (np.array([np.nan, 0.0, 0.0, 0.0]), True)])
+def test_the_nelder_mead_retry_starts_where_l_bfgs_b_stopped_or_from_zeros_if_that_is_not_finite(monkeypatch, lbfgs_x, start_is_zero):
+    """R3-nelder-mead-retry-start-fallback-unproved: the retry continues from L-BFGS-B's last point when it is finite, and from the zeros
+    otherwise; its result is the fit's."""
+    from scipy.optimize import OptimizeResult
+
+    starts = []
+
+    def scripted(fun, x0, method, **kwargs):
+        starts.append((method, np.array(x0, dtype="float64")))
+        if method == "L-BFGS-B":
+            return OptimizeResult(x=lbfgs_x, success=False, message="forced to fail")
+        return OptimizeResult(x=np.log([0.9, 75.0, 0.2, 100.0]), success=True, fun=1.0, message="ok", nit=3)
+
+    monkeypatch.setattr(bgnbd, "minimize", scripted)
+    fit = fit_bgnbd([0, 1, 2], [0, 5, 9], [10, 10, 10])
+    assert [m for m, _x in starts] == ["L-BFGS-B", "Nelder-Mead"]
+    np.testing.assert_allclose([fit.params.r, fit.params.alpha, fit.params.a, fit.params.b], [0.9, 75.0, 0.2, 100.0], rtol=1e-12)
+    expected = np.zeros(4) if start_is_zero else lbfgs_x
+    np.testing.assert_array_equal(starts[1][1], expected)

@@ -143,3 +143,20 @@ def test_saving_an_artifact_logs_its_file_its_digest_and_its_size(tmp_path, capl
         digest = save_artifact(small_bundle(), path)
     messages = [r.getMessage() for r in caplog.records if r.name == "churnrisk.registry"]
     assert any("v1.pkl" in m and digest in m and f"{path.stat().st_size} bytes" in m for m in messages), messages
+
+
+def test_a_real_risk_model_makes_the_round_trip_and_predicts_the_same(tmp_path, launch_model):
+    """R3-registry-model-roundtrip-untested: the bundle the launch saves, with a real ``RiskModel``, loads back from its bytes and gives the
+    same calibrated risks, the same log-odds and the same baseline probabilities, bit for bit."""
+    from churnrisk.features import build_matrix
+    from churnrisk.model import RiskModel, log_odds, predict_risk
+    from churnrisk.schema import FEATURE_COLUMNS
+
+    labelled, trained = launch_model("rfm_only")
+    bundle = ModelBundle("v1", trained.model, small_bundle().baseline_calibrators, BGNBDParams(0.9, 75.0, 0.2, 100.0), "b4_frequency")
+    path = tmp_path / "models" / "v1.pkl"
+    loaded = load_artifact(path, save_artifact(bundle, path))
+    assert isinstance(loaded.model, RiskModel) and (loaded.model.feature_set, loaded.model.country_groups) == (trained.model.feature_set, trained.model.country_groups)
+    x = build_matrix(labelled[list(FEATURE_COLUMNS)], trained.model.feature_set, trained.model.country_groups)
+    np.testing.assert_array_equal(predict_risk(loaded.model, x), predict_risk(trained.model, x))
+    np.testing.assert_array_equal(log_odds(loaded.model.pipeline, x), log_odds(trained.model.pipeline, x))

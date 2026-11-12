@@ -50,3 +50,55 @@ def test_a_repetition_with_the_sealed_configuration_reproduces_the_sealed_test(q
     assert (outcome["seal_state"], outcome["test"], restored) == ("sealed", "unchanged", 10)
     assert again["test"] == "sealed_before", "the sealed rows are written once"
     assert cfg.paths.seal.read_bytes() == quick_history.cfg.paths.seal.read_bytes()
+
+
+# --- review coverage (L50: R3-block-data-error-paths, R3-evaluate-no-seal-error) -----------------------------------------------------
+
+
+def test_a_block_is_refused_when_its_scope_is_unknown_its_windows_are_open_or_a_test_row_has_no_score(quick_history, cut_history):
+    import pytest
+
+    from churnrisk.evaluation import EvaluationError, block_data
+    from churnrisk.launch import load_registered
+
+    conn = connect(quick_history.warehouse)
+    try:
+        bundle = load_registered(conn, quick_history.cfg).bundle
+        with pytest.raises(EvaluationError, match="alcance desconocido: 'train'"):
+            block_data(conn, "train", bundle, quick_history.view)
+    finally:
+        conn.close()
+    launch = connect(cut_history[0].path)                  # the launch's warehouse: the test windows have not closed
+    try:
+        with pytest.raises(EvaluationError, match="el bloque test no tiene filas con etiqueta"):
+            block_data(launch, "test", bundle, quick_history.view)
+    finally:
+        launch.close()
+    unscored = connect(cut_history[-1].path)               # the loads and cuts of every run, with the test labels but no score
+    try:
+        with pytest.raises(EvaluationError, match="filas de la prueba no tienen puntaje"):
+            block_data(unscored, "test", bundle, quick_history.view)
+    finally:
+        unscored.close()
+
+
+def test_evaluate_without_a_seal_is_refused_before_it_writes(quick_history, tmp_path):
+    import hashlib
+    import shutil
+
+    import pytest
+
+    from churnrisk.registry import SealError
+    from tests.fixtures.history import quick_config
+
+    cfg = quick_config(tmp_path / "no_seal")
+    cfg.paths.warehouse.parent.mkdir(parents=True)
+    shutil.copy2(quick_history.warehouse, cfg.paths.warehouse)
+    before = hashlib.sha256(cfg.paths.warehouse.read_bytes()).hexdigest()
+    conn = connect(cfg.paths.warehouse)
+    try:
+        with pytest.raises(SealError, match="no hay sello"):
+            evaluate(conn, cfg, run_key="r9", as_of=quick_history.runs[-1].spec.as_of, source_sha256=quick_history.view.source_sha256)
+    finally:
+        conn.close()
+    assert hashlib.sha256(cfg.paths.warehouse.read_bytes()).hexdigest() == before and not cfg.paths.seal.exists()

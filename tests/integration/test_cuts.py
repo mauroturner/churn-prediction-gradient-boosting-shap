@@ -179,3 +179,17 @@ def test_build_cuts_nets_each_label_with_the_one_helper_and_counts_the_rows_it_w
     again = build_cuts(conn, date(2011, 7, 31), view, "r2")
     assert again.rows == {"cut_features": 0, "cut_labels": 0} and len(calls) == 12
     conn.close()
+
+
+def test_net_lines_at_with_inputs_read_once_equals_reading_the_warehouse_at_each_date(loaded_masters):
+    """R3-net-lines-at-inputs-unit-coverage: the inputs read once for a later date give, at each earlier date, exactly the net lines that
+    reading the warehouse at that date gives (only what is dated on or before the date counts)."""
+    from churnrisk.netting import known_netting_inputs, net_lines_at
+
+    conn = connect(loaded_masters(3)[0])
+    try:
+        inputs = known_netting_inputs(conn, date(2011, 9, 30))
+        for day in (date(2010, 6, 30), date(2011, 2, 28), date(2011, 7, 31), date(2011, 9, 30)):
+            pd.testing.assert_frame_equal(net_lines_at(conn, day, inputs), net_lines_at(conn, day), check_exact=True, obj=str(day))
+    finally:
+        conn.close()

@@ -14,6 +14,9 @@ WITH cells AS (
 flagged AS (
     SELECT *, customers < :min_cell_customers AS small FROM cells
 ),
+-- Secondary suppression (project 03, D77): dim_cut publishes each cut's total, so a cut with exactly one hidden cell would give it back by
+-- subtraction; then the smallest shown cell of that cut (fewest customers, then the lowest key) is hidden too. With two or more hidden cells
+-- no single one can be recovered, and with none there is nothing to protect.
 ranked AS (
     SELECT *, SUM(small) OVER (PARTITION BY cut_date) AS hidden,
            ROW_NUMBER() OVER (PARTITION BY cut_date, small ORDER BY customers, band_key) AS order_in_kind

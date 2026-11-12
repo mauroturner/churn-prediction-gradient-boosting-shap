@@ -133,3 +133,30 @@ def test_the_importance_is_the_mean_absolute_shap_with_the_country_summed():
     assert list(importance.columns) == ["feature", "mean_abs_shap"]
     assert [(r.feature, round(r.mean_abs_shap, 10)) for r in importance.itertuples()] == [
         ("rec_days", round(0.8 / 3, 10)), ("freq_365", round(0.8 / 3, 10)), ("gap_mean", round(0.65 / 3, 10)), ("country_group", round(0.17 / 3, 10))]
+
+
+# --- review coverage (L48: R3-explain-shape-guard-untested, R3-misc-validation-untested) -------------------------------------------
+
+
+def test_shap_values_of_another_shape_are_refused_before_any_row_is_checked(cfg, launch_model, monkeypatch):
+    labelled, trained, v2 = v2_of(launch_model)
+    x = build_matrix(v2[list(FEATURE_COLUMNS)], trained.model.feature_set, trained.model.country_groups)
+    real = shap.TreeExplainer
+
+    class TwoClasses(real):          # what a multi-output explainer would give: one matrix per class
+        def shap_values(self, X, *args, **kwargs):
+            values = np.asarray(real.shap_values(self, X, *args, **kwargs))
+            return np.stack([-values, values])
+
+    monkeypatch.setattr(explain_module.shap, "TreeExplainer", TwoClasses)
+    with pytest.raises(ExplanationError, match=r"M06: SHAP devolvió una matriz de \(2, "):
+        explain(trained.model.pipeline, x, SealedConfig.of(cfg, SHA).criteria.shap_additivity_tol)
+
+
+def test_a_column_that_is_neither_a_feature_nor_a_country_indicator_is_refused():
+    from churnrisk.explain import _feature_of
+
+    assert _feature_of("rec_days") == "rec_days" and _feature_of(f"{COUNTRY}_France") == COUNTRY
+    for column in ("customer_id", "country", "remainder__x"):
+        with pytest.raises(ExplanationError, match="no es una variable permitida"):
+            _feature_of(column)

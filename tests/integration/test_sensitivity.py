@@ -133,3 +133,25 @@ def sensitivity_bundle(conn, history):
     from churnrisk.launch import load_registered
 
     return load_registered(conn, history.cfg)
+
+
+def test_evaluate_persists_every_variant_of_the_seal_in_eval_variants(quick_history):
+    """R3-eval-variants-persistence-untested: after the run that seals the test, ``eval_variants`` holds, sealed, each variant's N, M, rows,
+    churn rate, the three AUCs and the four interval limits, with the values the seal holds (6 decimals) and that run's key."""
+    seal = read_seal(quick_history.cfg.paths.seal)
+    sealed = seal["test"]["variants"]
+    conn = connect(quick_history.warehouse)
+    try:
+        stored = {(v, m, k): (value, run) for v, m, k, value, run in
+                  conn.execute("SELECT variant, method, metric, value, run_key FROM eval_variants WHERE seal_state = 'sealed'")}
+    finally:
+        conn.close()
+    assert len(stored) == 11 * len(sealed) == 11 * len(quick_history.view.sensitivity.variants)
+    keys = (("all", "n", "n"), ("all", "m", "m"), ("all", "rows", "rows"), ("all", "churn_rate", "churn_rate"), ("model", "auc", "auc_model"),
+            ("b2_rfm", "auc", "auc_b2"), ("b_star", "auc", "auc_b_star"), ("b2_rfm", "diff_ci_low", "diff_b2_ci_low"),
+            ("b2_rfm", "diff_ci_high", "diff_b2_ci_high"), ("b_star", "diff_ci_low", "diff_b_star_ci_low"), ("b_star", "diff_ci_high", "diff_b_star_ci_high"))
+    for variant in sealed:
+        for method, metric, key in keys:
+            value, run = stored[(variant["variant"], method, metric)]
+            assert run == seal["test"]["run_key"]
+            assert (value is None and variant[key] is None) or round(value, 6) == round(float(variant[key]), 6), (variant["variant"], metric)

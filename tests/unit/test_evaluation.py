@@ -159,3 +159,14 @@ def test_the_leakage_demo_never_writes_the_registry_or_the_scores():
     for word in ("model_registry", "model_scores", "score_reasons", "INSERT", "UPDATE", "DELETE", "write_atomic", "save_artifact"):
         assert word not in text, word
 
+
+
+@pytest.mark.parametrize("short", ["y", "s_a", "s_b", "customers"])
+def test_the_bootstrap_refuses_inputs_of_different_lengths(short):
+    """R3-cluster-bootstrap-length-mismatch: the labels, both scores and the customers go together, or nothing is drawn."""
+    from churnrisk.evaluation import EvaluationError, cluster_bootstrap
+
+    args = {"y": np.array([0, 1, 0, 1]), "s_a": np.array([0.1, 0.9, 0.2, 0.8]), "s_b": np.array([0.3, 0.4, 0.5, 0.6]), "customers": np.array([1, 1, 2, 3])}
+    args[short] = args[short][:3]
+    with pytest.raises(EvaluationError, match="mismo largo"):
+        cluster_bootstrap(args["y"], args["s_a"], args["s_b"], args["customers"], 10, 0)

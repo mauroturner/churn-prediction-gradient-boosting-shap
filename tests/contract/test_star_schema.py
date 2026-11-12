@@ -216,3 +216,148 @@ def test_a_failed_control_says_the_star_model_was_undone_not_the_load(star_expor
     finally:
         conn.close()
     assert str(error.value).startswith("La exportación del modelo estrella se deshizo; controles con filas que los violan: chk_tracking_totals")
+
+
+# --- review coverage of U20 (L50: R3-coverage-*) --------------------------------------------------------------------------------------
+
+
+def model_check_params(cfg, conn) -> dict:
+    from churnrisk.features import FEATURE_SETS
+    from churnrisk.registry import sealed_view
+
+    view = sealed_view(cfg, "a" * 64)
+    feature_set = conn.execute("SELECT feature_set FROM model_registry").fetchone()[0]
+    return {"first_date": view.deliveries.first_date.isoformat(), "last_date": view.deliveries.last_date.isoformat(),
+            "min_cell_customers": cfg.site.min_cell_customers, "reasons_per_score": min(view.evaluation.shap_top_reasons, len(set(FEATURE_SETS[feature_set])))}
+
+
+def violations(conn, params) -> dict[str, int]:
+    from churnrisk.warehouse import run_checks
+
+    return {c.check_id: c.violations for c in run_checks(conn, "model", params)}
+
+
+@pytest.mark.parametrize("relationship", MODEL.relationships, ids=lambda r: r.rel_id)
+def test_every_foreign_key_check_catches_one_orphan_of_its_relationship(star_export, tmp_path, relationship):
+    """R3-coverage-fk-checks: one row of the fact whose key is not in its dimension makes that relationship's control fail, and only it among
+    the foreign keys."""
+    cfg, _out, _private, _paths, _meta, warehouse = star_export
+    path = tmp_path / "w.sqlite"
+    shutil.copy2(warehouse, path)
+    conn = connect(path)
+    try:
+        params = model_check_params(cfg, conn)
+        assert {k: v for k, v in violations(conn, params).items() if v} == {}
+        dtype = next(c.dtype for c in MODEL.table(relationship.fact_table).columns if c.name == relationship.fact_column)
+        orphan = -7 if dtype.startswith("int") else "orphan"
+        fact = f"star_{relationship.fact_table}"
+        if conn.execute(f"SELECT COUNT(*) FROM {fact}").fetchone()[0]:      # a real row with only its key changed: its other keys stay valid
+            conn.execute(f"CREATE TEMP TABLE orphan AS SELECT * FROM {fact} LIMIT 1")
+            conn.execute(f"UPDATE orphan SET {relationship.fact_column} = ?", (orphan,))
+            conn.execute(f"INSERT INTO {fact} SELECT * FROM orphan")
+        else:
+            conn.execute(f"INSERT INTO {fact} ({relationship.fact_column}) VALUES (?)", (orphan,))
+        failing = {k for k, v in violations(conn, params).items() if v and k.startswith("chk_fk_")}
+    finally:
+        conn.close()
+    assert failing == {f"chk_fk_{relationship.rel_id.lower()}_{relationship.fact_table}_{relationship.dim_table}"}
+
+
+def test_the_key_check_catches_a_repeated_key_in_every_table_that_has_rows(star_export, tmp_path):
+    """R3-coverage-star-keys: a copy of one row of any table of the star model repeats its key and fails ``chk_star_keys_unique``, naming the
+    table."""
+    cfg, _out, _private, _paths, _meta, warehouse = star_export
+    tested = []
+    for table in MODEL.tables:
+        path = tmp_path / f"{table.name}.sqlite"
+        shutil.copy2(warehouse, path)
+        conn = connect(path)
+        try:
+            if conn.execute(f"SELECT COUNT(*) FROM star_{table.name}").fetchone()[0] == 0:
+                continue
+            conn.execute(f"INSERT INTO star_{table.name} SELECT * FROM star_{table.name} LIMIT 1")
+            from churnrisk.warehouse import run_checks
+
+            check = next(c for c in run_checks(conn, "model", model_check_params(cfg, conn)) if c.check_id == "chk_star_keys_unique")
+        finally:
+            conn.close()
+        assert check.violations >= 1 and table.name in {row[0] for row in check.sample}, table.name
+        tested.append(table.name)
+    assert len(tested) >= len(MODEL.tables) - 2, f"only {tested} have rows"
+
+
+def test_a_versioned_file_over_the_limit_writes_nothing(star_export, tmp_path, monkeypatch):
+    """R3-coverage-parquet-size: every file is serialized and measured before any is written; one over the limit writes none."""
+    from churnrisk import export
+
+    cfg, _out, _private, _paths, meta, warehouse = star_export
+    monkeypatch.setattr(export, "MAX_PARQUET_BYTES", 4_000)
+    path = tmp_path / "w.sqlite"
+    shutil.copy2(warehouse, path)
+    conn = connect(path)
+    try:
+        with pytest.raises(ValueError, match=r"pesa \d+ bytes, más de 4000: no se escribe nada"):
+            export_star_schema(conn, tmp_path / "powerbi", tmp_path / "private", MODEL, meta, cfg)
+    finally:
+        conn.close()
+    assert not (tmp_path / "powerbi").exists() and not (tmp_path / "private").exists()
+
+
+def test_the_star_model_needs_a_registered_model(star_export, cut_history, tmp_path):
+    """R3-coverage-unregistered-model: before the launch registers its model there is nothing to export, and the marts are not touched."""
+    cfg, _out, _private, _paths, meta, _w = star_export
+    path = tmp_path / "w.sqlite"
+    shutil.copy2(cut_history[0].path, path)
+    conn = connect(path)
+    try:
+        with pytest.raises(RuntimeError, match="no hay un modelo registrado con la versión v1"):
+            build_powerbi_marts(conn, cfg, meta.source_sha256, meta.as_of)
+        assert not conn.in_transaction
+        assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'star_%' OR name LIKE 'ref_%'").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def _broken(change: str):
+    import dataclasses
+
+    from churnrisk.dashboard.semantic_model import Column, Relationship, SemanticModel
+
+    tables, rels = list(MODEL.tables), list(MODEL.relationships)
+    dim_cut = MODEL.table("dim_cut")
+    if change == "repeated_table":
+        tables.append(dim_cut)
+    elif change == "repeated_column":
+        tables[tables.index(dim_cut)] = dataclasses.replace(dim_cut, columns=(*dim_cut.columns, dim_cut.columns[0]))
+    elif change == "unknown_type":
+        tables[tables.index(dim_cut)] = dataclasses.replace(dim_cut, columns=(*dim_cut.columns, Column("extra", "decimal", "x")))
+    elif change == "key_not_a_column":
+        tables[tables.index(dim_cut)] = dataclasses.replace(dim_cut, key=("missing_key",))
+    elif change == "customer_column":
+        tables[tables.index(dim_cut)] = dataclasses.replace(dim_cut, columns=(*dim_cut.columns, Column("customer_id", "int64", "x")))
+    elif change == "fact_to_fact":
+        rels.append(Relationship("R99", "fact_cut_band", "cut_key", "fact_tracking", "cut_key"))
+    elif change == "not_the_whole_key":
+        rels.append(Relationship("R99", "dim_cut", "cut_date", "fact_tracking", "cut_key"))
+    elif change == "other_type":
+        rels.append(Relationship("R99", "dim_reason", "reason_key", "fact_tracking", "cut_key"))
+    elif change == "both_directions":
+        rels[0] = dataclasses.replace(rels[0], cross_filter="both")
+    return SemanticModel(tuple(tables), tuple(rels))
+
+
+@pytest.mark.parametrize(("change", "message"), [
+    ("repeated_table", "hay tablas repetidas"), ("repeated_column", "dim_cut repite una columna"), ("unknown_type", "tipo desconocido decimal"),
+    ("key_not_a_column", "la clave missing_key de dim_cut no es una columna"), ("customer_column", "dim_cut es versionada y tiene una columna de cliente"),
+    ("fact_to_fact", "R99 no une una dimensión con un hecho"), ("not_the_whole_key", "R99 no usa la clave entera de dim_cut"),
+    ("other_type", "R99: fact_tracking\[cut_key\] no es una columna del tipo"), ("both_directions", "R01 no es uno a varios, de filtro unidireccional"),
+])
+def test_the_model_check_names_every_way_the_specification_can_be_wrong(change, message):
+    """R3-coverage-validate-model-negative: each branch of ``validate_model``, and the export refuses an incoherent model before writing."""
+    import re
+
+    from churnrisk.dashboard.semantic_model import validate_model
+
+    assert validate_model(MODEL) == []
+    problems = validate_model(_broken(change))
+    assert any(re.search(message, p) for p in problems), problems

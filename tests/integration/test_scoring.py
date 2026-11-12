@@ -143,3 +143,33 @@ def test_a_check_that_fails_inserts_no_score_and_a_cut_without_population_or_a_b
         assert any(r == at for r, _c in rows) and all(c == int(r >= at) for r, c in rows) and result.contacts == sum(c for _r, c in rows)
     finally:
         conn.close()
+
+
+def test_scores_written_meanwhile_by_another_call_are_kept_and_not_inserted_again(quick_history, copy_of, monkeypatch):
+    """R3-1 of U16: a call that read the scored customers before another call committed reads them again inside its transaction, keeps the
+    other's scores and inserts only the rest; here every customer it meant to score was scored meanwhile, so it inserts nothing and raises
+    nothing (the insert-only trigger would refuse a second score)."""
+    from churnrisk import scoring
+
+    cut = date(2011, 8, 1)
+    conn = connect(copy_of(quick_history.warehouse))
+    try:
+        before = conn.execute("SELECT * FROM model_scores ORDER BY 1, 2").fetchall()
+        real = scoring._scored
+        everyone = real(conn, cut)
+        late = set(sorted(everyone)[:7])                # what the other call scored after this one first looked
+        calls = []
+
+        def scored(connection, day):
+            calls.append(connection.in_transaction)
+            seen = real(connection, day)
+            return seen - late if len(calls) == 1 else seen
+
+        monkeypatch.setattr(scoring, "_scored", scored)
+        registered = load_registered(conn, quick_history.cfg)
+        result = score_cut(conn, cut, registered.bundle, RunMeta("r9", date(2011, 12, 9), registered.model_version, registered.threshold), quick_history.view)
+        assert calls == [False, True], "read once before and once inside the transaction"
+        assert (result.scored, result.already_scored, result.contacts) == (0, len(everyone), 0)
+        assert conn.execute("SELECT * FROM model_scores ORDER BY 1, 2").fetchall() == before
+    finally:
+        conn.close()

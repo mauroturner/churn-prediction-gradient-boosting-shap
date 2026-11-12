@@ -149,3 +149,33 @@ def test_the_tripwire_logs_the_stop_with_the_auc_the_limit_and_the_set(cfg, capl
         model_module.check_tripwire(selection_with_auc(0.99), view)
     messages = [r.getMessage() for r in caplog.records if r.name == "churnrisk.model"]
     assert any("M01" in m and "0.9900" in m and str(view.criteria.leak_tripwire_auc) in m and "f1" in m for m in messages), messages
+
+
+# --- review coverage (L48: R3-log-odds-untested, R3-tripwire-nan-auc-untested) --------------------------------------------------
+
+
+def test_the_tripwire_stops_a_launch_whose_auc_is_not_a_number(cfg):
+    """D59: an AUC that is NaN is not below the limit, so it stops the launch like a leak; just below the limit it goes on."""
+    view = SealedConfig.of(cfg, SHA)
+    with pytest.raises(LeakageError, match="M01.*nan"):
+        model_module.check_tripwire(selection_with_auc(float("nan")), view)
+    with pytest.raises(LeakageError, match="M01"):
+        model_module.check_tripwire(selection_with_auc(view.criteria.leak_tripwire_auc), view)
+    model_module.check_tripwire(selection_with_auc(view.criteria.leak_tripwire_auc - 1e-9), view)
+
+
+def test_log_odds_are_the_uncalibrated_decision_function_and_the_logit_of_its_probability(launch_model):
+    """``log_odds`` is what SHAP explains: the pipeline's ``decision_function``, whose logistic is the uncalibrated probability; the isotonic
+    calibration never reorders it."""
+    from scipy.special import expit
+
+    labelled, trained = launch_model("rfm_only")
+    v2 = labelled[labelled["block"] == "valid_v2"]
+    x = build_matrix(v2[list(FEATURE_COLUMNS)], trained.model.feature_set, trained.model.country_groups)
+    lo = model_module.log_odds(trained.model.pipeline, x)
+    assert lo.dtype == np.float64 and lo.shape == (len(x),)
+    np.testing.assert_array_equal(lo, trained.model.pipeline.decision_function(x))
+    np.testing.assert_allclose(expit(lo), trained.model.pipeline.predict_proba(x)[:, 1], rtol=0, atol=1e-12)
+    risk = predict_risk(trained.model, x)
+    order = np.argsort(lo, kind="stable")
+    assert (np.diff(risk[order]) >= -1e-12).all(), "the calibrated risk never goes down while the log-odds go up"

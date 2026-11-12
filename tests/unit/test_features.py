@@ -159,3 +159,12 @@ def test_lines_from_the_cut_on_are_refused_not_dropped(cfg):
         compute_features(days, late_line, case.cut, pd.Index([201]), view)
     with pytest.raises(ValueError, match="sin días de compra"):
         compute_features(days, lines, case.cut, pd.Index([201, 299]), view)
+
+
+def test_known_before_needs_the_country_of_both_inputs(cfg):
+    """R3-known-before-country-guard-unproved: purchases or cancellations without their ``country`` are refused, naming which."""
+    case = hand_cases.features_case()
+    with pytest.raises(ValueError, match="compras: falta la columna country"):
+        known_before(case.purchases.drop(columns="country"), case.cancellations, case.cut)
+    with pytest.raises(ValueError, match="anulaciones: falta la columna country"):
+        known_before(case.purchases, case.cancellations.drop(columns="country"), case.cut)
