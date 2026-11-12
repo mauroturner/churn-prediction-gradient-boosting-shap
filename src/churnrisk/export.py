@@ -235,10 +235,13 @@ RUN_TABLE = "dim_pipeline_run"
 def export_run_table(conn: sqlite3.Connection, out_dir: Path, model: SemanticModel, meta: ExportMeta) -> Path | None:
     """Rewrite only ``dim_pipeline_run.parquet`` from ``pipeline_runs`` and its entry in the folder's manifest: what closing a run, a failure or
     a run with no delivery changes (plan, sections 3 and 22). Nothing is created that was not there: without an exported, verified set it
-    returns None. The other files keep their bytes."""
+    logs a warning naming the run and the reason and returns None. The other files keep their bytes."""
     out_dir = Path(out_dir)
     manifest_path = out_dir / STAR_MANIFEST
-    if not manifest_path.is_file() or verify_star_schema(out_dir):
+    problems = ["there is no manifest.json: nothing was exported here"] if not manifest_path.is_file() else verify_star_schema(out_dir)
+    if problems:
+        logger.warning("run table of run %s not rewritten: the exported set does not match its manifest, so every file is kept as it is: %s", meta.run_key,
+                       "; ".join(problems))
         return None
     table = model.table(RUN_TABLE)
     conn.execute("BEGIN IMMEDIATE")

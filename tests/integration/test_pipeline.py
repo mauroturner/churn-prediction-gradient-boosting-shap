@@ -274,3 +274,59 @@ def test_unknown_tasks_and_incompatible_selections_are_usage_errors_before_writi
         with pytest.raises(pipeline.UsageError):
             call()
     assert fingerprint(folder.root) == before
+
+
+# --- the review corrections of U25 (R3-001, R4-001) ----------------------------------------------------------------------------------
+
+
+def run_table_of(folder: Folder):
+    return pq.read_table(Path(folder.cfg.paths.outputs_dir) / "dim_pipeline_run.parquet").to_pandas().set_index("run_key")
+
+
+def test_a_run_with_no_delivery_rewrites_the_run_table_and_the_html(copy_state, monkeypatch):
+    """R3-001 (D77): ``deliver`` with nothing pending ends the run ``no_delivery`` and the exported run table and the HTML say so."""
+    folder = copy_state("launch")
+    html_path = Path(folder.cfg.paths.dashboard_html)
+    assert "N1" not in html_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(pipeline, "next_pending", lambda *a, **k: None)
+    result = run_all(folder.cfg, only=["fetch_source", "deliver"], run_key="N1")[-1]["result"]
+    assert result["run_status"] == "no_delivery" and state_of(folder, "N1")["status"] == "no_delivery" and run_row(folder, "N1")[0] == "no_delivery"
+    assert run_table_of(folder).loc["N1", "status"] == "no_delivery" and run_table_of(folder).loc[LAUNCH, "status"] == "ok"
+    html = html_path.read_text(encoding="utf-8")
+    assert "N1" in html and "no_delivery" in html
+
+
+@pytest.mark.parametrize("damage", ["mismatch", "missing"])
+def test_a_run_table_rewrite_that_cannot_happen_is_logged_and_overwrites_nothing(copy_state, caplog, damage):
+    """R4-001: a missing or mismatched manifest means no rewrite; the close says so (WARNING, the run and the reason) and keeps every file."""
+    folder = copy_state("launch")
+    manifest = Path(folder.cfg.paths.outputs_dir) / "manifest.json"
+    if damage == "missing":
+        manifest.unlink()
+    else:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+        document["files"][0]["sha256"] = "0" * 64
+        manifest.write_text(json.dumps(document), encoding="utf-8")
+    before = fingerprint(folder.root)
+    ctx = pipeline._context(folder.cfg, LAUNCH, pipeline.datetime.now(pipeline.UTC))
+    conn = pipeline.connect(folder.cfg.paths.warehouse)
+    try:
+        assert pipeline.export_run_table(conn, folder.cfg.paths.outputs_dir, pipeline.MODEL, pipeline._meta(ctx)) is None
+    finally:
+        conn.close()
+    with caplog.at_level(logging.WARNING):
+        pipeline._close_run_table(ctx)
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(LAUNCH in m and "not rewritten" in m and "manifest" in m for m in messages), messages
+    assert fingerprint(folder.root) == before
+
+
+def test_refreshing_the_exports_logs_when_the_run_metadata_cannot_be_read(copy_state, caplog):
+    """R3-001: a refresh that cannot read the run's metadata says so instead of skipping every step without a trace."""
+    folder = copy_state("launch")
+    ctx = pipeline._context(folder.cfg, "Z9", pipeline.datetime.now(pipeline.UTC))
+    before = fingerprint(folder.root)
+    with caplog.at_level(logging.WARNING, logger="churnrisk.pipeline"):
+        pipeline._refresh_exports(ctx, summary=True, html=True, when="after a test")
+    assert any("Z9" in r.getMessage() and "metadata" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING), caplog.records
+    assert {k: v for k, v in fingerprint(folder.root).items() if not k.startswith("interim/runs/")} == {k: v for k, v in before.items() if not k.startswith("interim/runs/")}

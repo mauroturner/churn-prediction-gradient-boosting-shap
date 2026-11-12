@@ -310,8 +310,15 @@ def deliver(ctx: RunContext) -> dict:
         message = f"no hay entregas pendientes: las {len(plan)} del plan ya están cargadas"
         _record(ctx, started_at=ctx.started_at.isoformat(timespec="seconds"), finished_at=_now_text(), status="no_delivery", source_sha256=fetched["sha256"],
                 message=message)
+        conn = _read_only(cfg)
+        try:
+            as_of = _latest_loaded_as_of(conn)      # the data the exports describe: the last loaded delivery's
+        finally:
+            conn.close()
+        result = {"delivered": False, "run_status": "no_delivery", "message": message, "as_of": as_of}
+        _save_task(ctx, "deliver", result, status="no_delivery")     # the refresh below reads this task's own result (``_meta``)
         _refresh_exports(ctx, summary=False, html=True, when="after a run with no delivery")
-        return {"delivered": False, "run_status": "no_delivery", "message": message}
+        return result
     conn = _read_only(cfg)
     try:
         owner = _loaded_by(conn, spec.delivery_id)
@@ -539,7 +546,8 @@ def _refresh_exports(ctx: RunContext, *, summary: bool, html: bool, when: str) -
     cfg = ctx.cfg
     try:
         meta = _meta(ctx)
-    except RunStateError:
+    except (RunStateError, KeyError, TypeError, ValueError) as error:
+        logger.warning("could not read the metadata of run %s %s, so no exported file was rewritten: %s", ctx.run_key, when, error)
         meta = None
     steps = []
     if meta is not None:
