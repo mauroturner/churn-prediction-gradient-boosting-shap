@@ -12,9 +12,9 @@ import pytest
 
 from churnrisk.config import SealedConfig
 from churnrisk.cuts import build_cuts, cut_dates, label_end
-from churnrisk.deliveries import delivery_plan, delivery_rows
+from churnrisk.deliveries import delivery_plan
 from churnrisk.split import PurgeError, blocks, is_censored
-from churnrisk.warehouse import CheckFailedError, connect, load_delivery
+from churnrisk.warehouse import CheckFailedError, connect
 from tests.fixtures.make_fixture import WINDOW_END
 
 SHA = "d" * 64
@@ -35,39 +35,43 @@ def stored(conn: sqlite3.Connection, table: str) -> dict[date, dict[int, int]]:
 # --- the RED of U10 -----------------------------------------------------------------------------------------------------
 
 
-def test_a_label_exists_only_once_its_window_has_closed(cfg, canonical, loaded_masters, copy_of, fixture_truth):
-    """The launch and every monthly run in order: after each, the warehouse holds the population of every cut up to the day after its
-    calculation date and the label of exactly the cuts whose window closed by then, known on that date; both are the fixture's truth."""
-    frame, _report = canonical
+def test_a_label_exists_only_once_its_window_has_closed(cfg, cut_history, copy_of, fixture_truth):
+    """The launch and every monthly run in order (``cut_history``: each run loads its delivery and builds its cuts): after each, the warehouse
+    holds the population of every cut up to the day after its calculation date and the label of exactly the cuts whose window closed by then,
+    known on that date; both are the fixture's truth."""
     view = SealedConfig.of(cfg, SHA)
-    plan = delivery_plan(cfg)
     n = timedelta(days=view.label.horizon_days)
-    conn = connect(copy_of(loaded_masters(1)[0]))
-    for index, spec in enumerate(plan):
-        if index:
-            load_delivery(conn, delivery_rows(spec, frame), spec, f"r{index + 1}", sha256=loaded_masters.entries[spec.delivery_id].sha256)
-        result = build_cuts(conn, spec.as_of, view, f"r{index + 1}")
-        with_population = [c for c in cut_dates(view) if c <= spec.as_of + timedelta(days=1)]
-        with_label = [c for c in cut_dates(view) if c + n - timedelta(days=1) <= spec.as_of]
-        assert sorted(stored(conn, "cut_features")) == with_population, spec.delivery_id
-        assert sorted(stored(conn, "cut_labels")) == with_label, spec.delivery_id
-        assert conn.execute("SELECT COUNT(*) FROM cut_labels WHERE label_end > ? OR known_as_of < label_end", (spec.as_of.isoformat(),)).fetchone()[0] == 0
-        newly = conn.execute("SELECT DISTINCT cut_date FROM cut_labels WHERE known_as_of = ? ORDER BY 1", (spec.as_of.isoformat(),)).fetchall()
-        assert [date.fromisoformat(r[0]) for r in newly] == result.labelled_cuts, "each label is known on the date of the run that wrote it"
-        assert all(c.violations == 0 for c in result.checks)
+    assert [run.spec.delivery_id for run in cut_history] == [spec.delivery_id for spec in delivery_plan(cfg)]
+    for run in cut_history:
+        spec, result = run.spec, run.result
+        conn = sqlite3.connect(run.path)
+        try:
+            with_population = [c for c in cut_dates(view) if c <= spec.as_of + timedelta(days=1)]
+            with_label = [c for c in cut_dates(view) if c + n - timedelta(days=1) <= spec.as_of]
+            assert sorted(stored(conn, "cut_features")) == with_population, spec.delivery_id
+            assert sorted(stored(conn, "cut_labels")) == with_label, spec.delivery_id
+            assert conn.execute("SELECT COUNT(*) FROM cut_labels WHERE label_end > ? OR known_as_of < label_end", (spec.as_of.isoformat(),)).fetchone()[0] == 0
+            newly = conn.execute("SELECT DISTINCT cut_date FROM cut_labels WHERE known_as_of = ? ORDER BY 1", (spec.as_of.isoformat(),)).fetchall()
+            assert [date.fromisoformat(r[0]) for r in newly] == result.labelled_cuts, "each label is known on the date of the run that wrote it"
+            assert all(c.violations == 0 for c in result.checks) and result.as_of == spec.as_of
+        finally:
+            conn.close()
     assert result.populated_cuts == [] and result.labelled_cuts == [], "the close (2011-12-09) has no new cut and no window that closes"
-    # the populations and the labels are the fixture's truth, computed by its own netting
-    assert stored(conn, "cut_features") == {cut: dict.fromkeys(customers, 1) for cut, customers in fixture_truth.population.items()}
-    assert stored(conn, "cut_labels") == {cut: labels for cut, labels in fixture_truth.labels.items() if labels}
-    assert max(fixture_truth.labels) + n - timedelta(days=1) <= WINDOW_END and len(stored(conn, "cut_labels")) == 16
-    # the blocks of every cut, its window and whether it is censored
-    rows = conn.execute("SELECT cut_date, block, label_end, is_censored FROM cut_blocks ORDER BY cut_date").fetchall()
-    assert rows == [(c.isoformat(), b, label_end(c, view.label.horizon_days).isoformat(), int(is_censored(c, view))) for c, b in blocks(view).items()]
-    # repeating the last run's cuts adds nothing and changes nothing
-    before = (stored(conn, "cut_features"), stored(conn, "cut_labels"))
-    again = build_cuts(conn, plan[-1].as_of, view, "r9")
-    assert (again.populated_cuts, again.labelled_cuts) == ([], []) and (stored(conn, "cut_features"), stored(conn, "cut_labels")) == before
-    conn.close()
+    conn = connect(copy_of(cut_history[-1].path))
+    try:
+        # the populations and the labels are the fixture's truth, computed by its own netting
+        assert stored(conn, "cut_features") == {cut: dict.fromkeys(customers, 1) for cut, customers in fixture_truth.population.items()}
+        assert stored(conn, "cut_labels") == {cut: labels for cut, labels in fixture_truth.labels.items() if labels}
+        assert max(fixture_truth.labels) + n - timedelta(days=1) <= WINDOW_END and len(stored(conn, "cut_labels")) == 16
+        # the blocks of every cut, its window and whether it is censored
+        rows = conn.execute("SELECT cut_date, block, label_end, is_censored FROM cut_blocks ORDER BY cut_date").fetchall()
+        assert rows == [(c.isoformat(), b, label_end(c, view.label.horizon_days).isoformat(), int(is_censored(c, view))) for c, b in blocks(view).items()]
+        # repeating the last run's cuts adds nothing and changes nothing
+        before = (stored(conn, "cut_features"), stored(conn, "cut_labels"))
+        again = build_cuts(conn, cut_history[-1].spec.as_of, view, "r9")
+        assert (again.populated_cuts, again.labelled_cuts) == ([], []) and (stored(conn, "cut_features"), stored(conn, "cut_labels")) == before
+    finally:
+        conn.close()
 
 
 # --- insert only, the controls and the purges -----------------------------------------------------------------------------

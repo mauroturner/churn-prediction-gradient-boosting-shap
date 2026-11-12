@@ -276,9 +276,9 @@ LAUNCH_RUN_SHA = "d" * 64   # the source hash of the sealed view of the cuts bui
 
 
 @pytest.fixture(scope="session")
-def launch_cuts(tmp_path_factory: pytest.TempPathFactory, loaded_masters, cfg) -> Path:
-    """The warehouse of ``loaded_masters(1)`` (the launch L2011-07 loaded by run ``r1``) with its cuts built at the launch's calculation date
-    by the same run, built once per session (D63): the tests of the cuts and every later state of the launch start from a copy of it."""
+def launch_build(tmp_path_factory: pytest.TempPathFactory, loaded_masters, cfg) -> tuple[Path, object]:
+    """``(path, CutsResult)``: the warehouse of ``loaded_masters(1)`` (the launch L2011-07 loaded by run ``r1``) with its cuts built at the
+    launch's calculation date by the same run, built once per session (D63)."""
     from churnrisk.config import SealedConfig
     from churnrisk.cuts import build_cuts
     from churnrisk.deliveries import delivery_plan
@@ -288,22 +288,39 @@ def launch_cuts(tmp_path_factory: pytest.TempPathFactory, loaded_masters, cfg) -
     shutil.copy2(loaded_masters(1)[0], path)
     conn = connect(path)
     try:
-        build_cuts(conn, delivery_plan(cfg)[0].as_of, SealedConfig.of(cfg, LAUNCH_RUN_SHA), "r1")
+        result = build_cuts(conn, delivery_plan(cfg)[0].as_of, SealedConfig.of(cfg, LAUNCH_RUN_SHA), "r1")
     finally:
         conn.close()
-    return path
+    return path, result
 
 
 @pytest.fixture(scope="session")
-def quick_history(tmp_path_factory: pytest.TempPathFactory, launch_cuts: Path, canonical, loaded_masters, fixture_truth):
-    """The quick run of the whole plan on the standard fixture (``tests/fixtures/history.py``), from a copy of ``launch_cuts``: the launch
-    trains and seals, every later run loads its delivery, builds its cuts, reuses the frozen model and scores its cut. Built once per session;
-    a test that writes works on copies of its warehouse, its artifact and its seal."""
+def launch_cuts(launch_build) -> Path:
+    """The launch warehouse with its cuts (``launch_build``): the tests of the cuts and every later state of the launch start from a copy."""
+    return launch_build[0]
+
+
+@pytest.fixture(scope="session")
+def cut_history(tmp_path_factory: pytest.TempPathFactory, launch_build, canonical, loaded_masters, cfg) -> list:
+    """The loads and the cuts of the whole plan, run by run (``r1`` to ``r6``) from ``launch_build``: each run's warehouse and the
+    ``CutsResult`` of its build, built once per session (D67). The tests of the cuts read it, and ``quick_history`` runs its model steps on a
+    copy of each run's warehouse."""
+    from churnrisk.config import SealedConfig
+    from tests.fixtures.history import build_cut_history
+
+    frame, _report = canonical
+    return build_cut_history(tmp_path_factory.mktemp("cut_history"), frame, loaded_masters.entries, *launch_build, cfg, SealedConfig.of(cfg, LAUNCH_RUN_SHA))
+
+
+@pytest.fixture(scope="session")
+def quick_history(tmp_path_factory: pytest.TempPathFactory, cut_history, fixture_truth):
+    """The quick run of the whole plan on the standard fixture (``tests/fixtures/history.py``), on the loads and cuts of ``cut_history``: the
+    launch trains and seals, every later run reuses the frozen model, scores its cut, tracks and evaluates. Built once per session; a test that
+    writes works on copies of its warehouse, its artifact and its seal."""
     from tests.fixtures.history import build_history, quick_config
 
     folder = tmp_path_factory.mktemp("quick_history")
-    frame, _report = canonical
-    return build_history(folder, quick_config(folder), fixture_truth.zip_sha256, launch_cuts, frame, loaded_masters.entries)
+    return build_history(folder, quick_config(folder), fixture_truth.zip_sha256, cut_history)
 
 
 @pytest.fixture(scope="session")

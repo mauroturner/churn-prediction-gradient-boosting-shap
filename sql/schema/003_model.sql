@@ -243,3 +243,22 @@ CREATE TABLE IF NOT EXISTS eval_silence_return (
     run_key TEXT NOT NULL
 );
 
+
+-- The monthly tracking (plan, sections 5 and 18; D44): for each calculation date and scored cut, who bought again, whether the window closed,
+-- who churned and how many contacted customers did either. The rows of a date are replaced when that date is run again.
+
+CREATE TABLE IF NOT EXISTS tracking (
+    as_of_date TEXT NOT NULL,
+    cut_date TEXT NOT NULL,
+    scored INTEGER NOT NULL,
+    contacted INTEGER NOT NULL,
+    returned INTEGER NOT NULL,
+    window_closed INTEGER NOT NULL CHECK (window_closed IN (0, 1)),
+    churned INTEGER,
+    contacted_churned INTEGER,
+    contacted_returned INTEGER NOT NULL,
+    expected_churners REAL NOT NULL,
+    is_censored INTEGER NOT NULL CHECK (is_censored IN (0, 1)),
+    run_key TEXT NOT NULL,
+    PRIMARY KEY (as_of_date, cut_date)
+);
