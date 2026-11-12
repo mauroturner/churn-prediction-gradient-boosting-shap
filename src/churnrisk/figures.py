@@ -8,7 +8,7 @@ calibration of the test, the mean absolute SHAP of each feature, and what the co
 export is refused with ``SiteSetError`` (project 03, D77). The site files hold no customer number, so neither does a figure (D26, AC42).
 
 The files are deterministic (no timestamp in the metadata), so a figure changes only when its data do. Nothing is written unless every figure
-was drawn. Before the test is sealed the figures that need its results say so instead of staying empty (the site publishes nothing of the test
+was drawn and every file staged. Before the test is sealed the figures that need its results say so instead of staying empty (the site publishes nothing of the test
 before the seal, D17); a hidden cell (fewer customers than ``min_cell_customers``) is a gap and never a number.
 """
 
@@ -18,6 +18,7 @@ import io
 import json
 import logging
 import textwrap
+from contextlib import ExitStack
 from pathlib import Path
 
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -25,7 +26,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter
 
-from churnrisk.files import write_atomic
+from churnrisk.files import atomic_path
 from churnrisk.site_export import SiteSetError, read_site
 
 logger = logging.getLogger(__name__)
@@ -144,17 +145,24 @@ def draw_label_n_by_m(label: dict) -> Figure:
     for j, m in enumerate(ms):
         part = {c["n"]: c["churn_rate"] for c in cells if c["m"] == m}
         xs = [i + (j - (len(ms) - 1) / 2) * width for i, n in enumerate(ns) if n in part]
-        left.bar(xs, [part[n] for n in ns if n in part], width, color=[BLUE, ORANGE, GOLD, GREY][j % 4], label=f"M = {m}")
+        rates = [part[n] for n in ns if n in part]
+        left.bar(xs, [0.0 if r is None else r for r in rates], width, color=[BLUE, ORANGE, GOLD, GREY][j % 4], label=f"M = {m}")
+        for x, r in zip(xs, rates, strict=True):
+            if r is None:   # a rate the site does not publish is a gap, never a number (R3-1 of U28)
+                left.text(x, 0.01, HIDDEN, ha="center", va="bottom", rotation=90, fontsize=7, color=MUTED)
     left.set_xticks(range(len(ns)), [f"N = {n}" for n in ns])
     left.yaxis.set_major_formatter(FuncFormatter(_percent))
     left.legend(frameon=False, fontsize=8, loc="upper right")
     _style(right, "Callan N días y vuelven")
     returns = label["silence_return"]
-    right.bar(range(len(returns)), [r["return_share"] for r in returns], 0.6, color=GREY)
+    right.bar(range(len(returns)), [0.0 if r["return_share"] is None else r["return_share"] for r in returns], 0.6, color=GREY)
     right.set_xticks(range(len(returns)), [f"N = {r['n']}" for r in returns])
     right.yaxis.set_major_formatter(FuncFormatter(_percent))
     for i, r in enumerate(returns):
-        right.text(i, r["return_share"], f"{_percent(r['return_share'])} de {_spanish(r['silences'])}", ha="center", va="bottom", fontsize=8, color=MUTED)
+        if r["return_share"] is None:
+            right.text(i, 0.01, HIDDEN, ha="center", va="bottom", rotation=90, fontsize=7, color=MUTED)
+        else:
+            right.text(i, r["return_share"], f"{_percent(r['return_share'])} de {_spanish(r['silences'])}", ha="center", va="bottom", fontsize=8, color=MUTED)
     return fig
 
 
@@ -294,15 +302,29 @@ def _png(fig: Figure) -> bytes:
 
 
 def make_figures(site_dir: Path, out_dir: Path) -> list[Path]:
-    """Draw the seven figures from the verified site files of `site_dir` and write them to `out_dir` (each atomically); returns the paths in
-    ``FIGURE_NAMES`` order. Every figure is drawn and rendered before the first file is written: a missing or mixed site folder, or a figure
-    that fails, writes nothing."""
+    """Draw the seven figures from the verified site files of `site_dir` and write them to `out_dir`; returns the paths in ``FIGURE_NAMES`` order.
+    Every figure is drawn and rendered, and every file is written to a temporary file of its own next to its target, before the first target is
+    replaced: a missing or mixed site folder, a figure that fails or a write that fails (a full disk, a permission) replaces nothing, leaves no
+    temporary file and no folder it created. Only a failure of the rename itself, after all the files were written, can leave some figures replaced."""
     drawn = draw_all(load_site(site_dir))
     rendered = {name: _png(drawn[name]) for name in FIGURE_NAMES}
-    paths = []
-    for name in FIGURE_NAMES:
-        paths.append(write_atomic(Path(out_dir) / name, rendered[name]))
-        logger.info("figure %s written", paths[-1])
+    out_dir = Path(out_dir)
+    created = not out_dir.exists()
+    try:
+        with ExitStack() as stack:   # the files are replaced when the block ends cleanly, in FIGURE_NAMES order; an error removes every temporary file
+            staged = {name: stack.enter_context(atomic_path(out_dir / name)) for name in reversed(FIGURE_NAMES)}
+            for name in FIGURE_NAMES:
+                staged[name].write_bytes(rendered[name])
+    except BaseException:
+        if created:
+            try:
+                out_dir.rmdir()   # only while it is empty: a folder this call made for files it never got
+            except OSError:
+                pass
+        raise
+    paths = [out_dir / name for name in FIGURE_NAMES]
+    for path in paths:
+        logger.info("figure %s written", path)
     return paths
 
 

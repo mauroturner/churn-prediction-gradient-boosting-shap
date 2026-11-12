@@ -16,6 +16,7 @@ retry; any other error (the network, the disk) keeps the retries of its ``TaskSp
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import UTC, datetime, timedelta
 
@@ -26,6 +27,8 @@ from churnrisk.explain import ExplanationError
 from churnrisk.features import LeakageError
 from churnrisk.pipeline import TASKS, RunRefusedError, TaskSpec, run_task
 from churnrisk.validate import ValidationError
+
+logger = logging.getLogger(__name__)
 
 SUMMARY_TEXT_CHARS = 200   # XCom gets a short text; the whole result stays in the run's state file
 
@@ -40,11 +43,12 @@ def run_without_retrying_a_rejection(task_id: str, run_id: str | None) -> dict:
 
 def summary(task_id: str, result: dict) -> dict:
     """What a task tells Airflow (its UI shows it): the task and the flat part of its result, small and JSON. Booleans, numbers, short text
-    and ``None`` are kept (a long text is cut at ``SUMMARY_TEXT_CHARS``, a number that is not finite becomes ``None``); lists and nested
-    records stay in the run's state file."""
+    and ``None`` are kept (a long text is cut at ``SUMMARY_TEXT_CHARS``, a number that is not finite becomes ``None`` with a warning that names the task and the key); lists and
+    nested records stay in the run's state file."""
     out: dict = {"task": task_id}
     for key, value in result.items():
         if isinstance(value, float) and not math.isfinite(value):
+            logger.warning("task %s: %s is %r and is published as None (XCom is JSON)", task_id, key, value)
             out[key] = None
         elif isinstance(value, str):
             out[key] = value[:SUMMARY_TEXT_CHARS]

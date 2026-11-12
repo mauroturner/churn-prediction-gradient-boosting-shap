@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import logging
 import sys
 import types
 from datetime import UTC, datetime, timedelta
@@ -216,3 +217,19 @@ def test_the_docstring_names_the_short_circuit_task_and_the_status_the_pipeline_
     [short] = [spec.task_id for spec in TASKS if spec.short_circuit]
     assert f"``{short}``" in doc and "short_circuit=True" in doc
     assert "``no_delivery``" in doc and "no_delivery" in CLOSED_STATUSES and "pipeline_runs" in doc
+
+
+def test_a_number_that_is_not_finite_is_published_as_none_and_a_warning_names_the_task_and_the_key(loaded_dag, caplog) -> None:
+    """R4-nan-masking-in-xcom-summary (U27): the summary of a task keeps blanking NaN and infinity (XCom is JSON), but no longer in silence: one warning
+    per value says which task and which key, so a metric that came back NaN is not read as a plain ``None``."""
+    module, _ = loaded_dag
+    with caplog.at_level(logging.WARNING):
+        made = module.summary("evaluate", {"auc": float("nan"), "loss": float("inf"), "floor": float("-inf"), "rows": 7, "share": 0.5, "note": None})
+    assert made == {"task": "evaluate", "auc": None, "loss": None, "floor": None, "rows": 7, "share": 0.5, "note": None}
+    warned = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warned) == 3 and all("evaluate" in m for m in warned)
+    assert [key for key in ("auc", "loss", "floor") if sum(key in m for m in warned) == 1] == ["auc", "loss", "floor"]
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        module.summary("evaluate", {"auc": 0.8, "rows": 7})
+    assert caplog.records == [], "a finite value says nothing"

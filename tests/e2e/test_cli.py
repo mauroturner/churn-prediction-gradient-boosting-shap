@@ -290,6 +290,45 @@ def test_python_m_churnrisk_help_runs_from_another_directory(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_make_fixture_without_the_tests_tree_says_so_and_exits_2(tmp_path):
+    """R2-cli-imports-test-module (F2): the generator lives with the tests, so a project folder that holds only ``src/`` (as the Airflow image's
+    does: ``.dockerignore`` lets only ``requirements.txt`` into the build) cannot run ``make-fixture``. It exits 2 with a message in Spanish that
+    says where the generator is, not with a traceback, and writes nothing."""
+    root = tmp_path / "bare"
+    shutil.copytree(PROJECT_ROOT / "src", root / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    env = {**os.environ, "PYTHONPATH": str(root / "src"), "PYTHONIOENCODING": "utf-8"}
+    for name in ("CHURNRISK_CONFIG", "CHURNRISK_HOME"):
+        env.pop(name, None)
+    done = subprocess.run([sys.executable, "-m", "churnrisk", "make-fixture", "out.zip", "--customers", "40"], cwd=tmp_path, env=env, capture_output=True,
+                          text=True, encoding="utf-8", timeout=120)
+    assert done.returncode == 2 and done.stdout == "", (done.returncode, done.stdout, done.stderr)
+    assert done.stderr.startswith("error: ") and "tests/fixtures/make_fixture.py" in done.stderr and "Traceback" not in done.stderr, done.stderr
+    assert not (root / "out.zip").exists() and not (tmp_path / "out.zip").exists()
+
+
+def test_make_fixture_does_not_hide_a_missing_dependency_of_the_generator_as_a_missing_tests_tree(tmp_path, monkeypatch):
+    """The message about the absent ``tests`` folder is only for that: a module the generator itself imports that is not installed stays the
+    ``ModuleNotFoundError`` it is, naming that module."""
+    import importlib.abc
+    import importlib.util
+
+    class Broken(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, name, path=None, target=None):
+            return importlib.util.spec_from_loader(name, self) if name == "tests.fixtures.make_fixture" else None
+
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, module):
+            raise ModuleNotFoundError("No module named 'numpy'", name="numpy")
+
+    monkeypatch.delitem(sys.modules, "tests.fixtures.make_fixture", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [Broken(), *sys.meta_path])
+    monkeypatch.setenv("CHURNRISK_HOME", str(tmp_path))
+    with pytest.raises(ModuleNotFoundError, match="numpy"):
+        cli("make-fixture", "out.zip", "--customers", "40")
+
+
 def test_the_logging_of_a_second_call_replaces_the_first(project):
     """Two calls in one process (as the tests make): ``-v`` takes effect each time and a handler is not added twice."""
     project("launch")

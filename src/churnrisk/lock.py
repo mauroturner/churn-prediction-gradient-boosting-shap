@@ -200,7 +200,7 @@ def _boot_id() -> str | None:
         return None
     try:
         return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip() or None
-    except OSError:
+    except (OSError, ValueError):   # unreadable, or not ASCII (``UnicodeDecodeError`` is a ``ValueError``): the system cannot tell
         return None
 
 

@@ -140,7 +140,13 @@ def _make_fixture(args: argparse.Namespace) -> int:
     root = DEFAULT_PROJECT_ROOT
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))   # the generator lives with the tests, next to src/
-    from tests.fixtures.make_fixture import make_fixture
+    try:
+        from tests.fixtures.make_fixture import make_fixture
+    except ModuleNotFoundError as error:
+        if error.name not in ("tests", "tests.fixtures", "tests.fixtures.make_fixture"):
+            raise   # a module the generator itself needs is missing: a real error, not an absent tests tree
+        raise _UsageError(f"make-fixture usa el generador de tests/fixtures/make_fixture.py, y {root} no tiene la carpeta tests (por ejemplo, la imagen de "
+                          "Airflow solo trae las dependencias): córralo desde un clon completo del proyecto. No se escribió nada.") from error
 
     output = args.output if args.output.is_absolute() else _home() / args.output   # like the paths of the configuration: never the working directory
     truth = make_fixture(output, n_customers=args.customers, seed=args.seed, signal=args.signal)

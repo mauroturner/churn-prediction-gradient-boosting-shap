@@ -109,6 +109,33 @@ def test_nothing_is_written_if_a_figure_fails_or_a_site_file_is_missing(site_fil
     assert not out.exists()
 
 
+def test_nothing_is_written_if_one_of_the_files_cannot_be_written(site_files, tmp_path, monkeypatch):
+    """R2-figures-makefigures-atomicity-doc (U28): a write that fails halfway (a full disk, a permission) replaces no figure of an earlier run, leaves no
+    temporary file and no new folder behind: the files are all staged first and replaced only when every one was written."""
+    out = tmp_path / "figures"
+    out.mkdir()
+    (out / "gain_curve.png").write_bytes(b"old")
+    real, calls = Path.write_bytes, []
+
+    def write_bytes(self, data):
+        if self.name.endswith(".tmp") and ".png." in self.name:
+            calls.append(self.name)
+            if len(calls) == 4:
+                raise OSError(28, "No space left on device")
+        return real(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    with pytest.raises(OSError, match="No space left"):
+        figures.make_figures(site_files, out)
+    assert len(calls) == 4, "the fourth file was the one that failed"
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == {"gain_curve.png": b"old"}, "no figure replaced and no temporary file left"
+    fresh = tmp_path / "fresh"
+    calls.clear()
+    with pytest.raises(OSError, match="No space left"):
+        figures.make_figures(site_files, fresh)
+    assert not fresh.exists(), "a folder the call created is removed with the files it never got"
+
+
 # --- the data behind each figure ------------------------------------------------------------------------------------------------------
 
 
@@ -201,3 +228,18 @@ def test_a_hidden_cell_is_a_gap_and_never_a_number(site):
     assert len(made["calibration.png"].axes[0].lines[0].get_xdata()) == len(shown) - 1, "the hidden bin is not drawn"
     left = made["retention_by_cut.png"].axes[0]
     assert left.patches[0].get_height() == 0.0 and any(t.get_text() == "celda oculta" for t in left.texts)
+
+
+def test_a_hidden_cell_of_the_definition_figure_is_a_gap_and_never_a_number(site):
+    """R3-1 (U28): a rate of ``n_by_m`` or a return share of ``silence_return`` that the site publishes as ``null`` is drawn as the other figures draw a
+    hidden cell (no bar height, ``celda oculta``), never as a number and never as an error."""
+    hidden = json.loads(json.dumps(site))
+    hidden["label"]["n_by_m"][0]["churn_rate"] = None
+    hidden["label"]["silence_return"][0]["return_share"] = None
+    left, right = figures.draw_all(hidden)["label_n_by_m.png"].axes
+    cells = site["label"]["n_by_m"]
+    assert sorted(p.get_height() for p in left.patches) == sorted([0.0] + [c["churn_rate"] for c in cells[1:]])
+    assert any(t.get_text() == "celda oculta" for t in left.texts), "the empty cell says why it is empty"
+    returns = site["label"]["silence_return"]
+    assert [p.get_height() for p in right.patches] == [0.0] + [r["return_share"] for r in returns[1:]]
+    assert sum(t.get_text() == "celda oculta" for t in right.texts) == 1 and not any("None" in t.get_text() for t in left.texts + right.texts)

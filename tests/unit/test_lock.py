@@ -349,3 +349,20 @@ def test_on_windows_the_system_says_whether_a_process_runs_and_when_it_started(t
     assert lock._windows_alive(child.pid) is False, "ended: its exit code is no longer STILL_ACTIVE"
     impossible = 0xFFFFFFFC
     assert lock._windows_alive(impossible) is False and lock._windows_start(impossible) is None
+
+
+def test_a_boot_id_that_cannot_be_decoded_is_no_boot_id_and_never_stops_the_lock(tmp_path, monkeypatch):
+    """R4-boot-id-narrow-exception (F1): a boot id file whose bytes are not ASCII (an unusual mount) is read as a system that cannot tell: ``None``,
+    so the lock is taken and the comparison keeps the start time alone, instead of a ``UnicodeDecodeError`` out of ``acquire``."""
+    real = Path.read_text
+
+    def read_text(self, *args, **kwargs):
+        if self.name == "boot_id":
+            return b"\xff\xfe".decode("ascii")      # UnicodeDecodeError, a ValueError
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(lock.sys, "platform", "linux")
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert lock._boot_id() is None
+    with lock.sole_writer(tmp_path, "run", "r1"):
+        assert lock.read_holder(tmp_path)["boot"] is None
