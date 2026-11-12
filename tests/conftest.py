@@ -6,7 +6,14 @@ Every expensive state is built once per session and reused (D34): the synthetic 
 
 from __future__ import annotations
 
-import shutil
+import os
+
+# OpenMP threads of the fits in this test process (scikit-learn's gradient boosting), set before scikit-learn is imported: on this machine's
+# 32 logical processors the default takes 8.0 s to train the 24 candidates of a launch and 8 threads 6.7 s, with the same risks to the last
+# bit (D75). A value the person running the suite set is kept. The product never reads it.
+os.environ.setdefault("OMP_NUM_THREADS", "8")
+
+import shutil  # noqa: E402
 from collections.abc import Callable
 from pathlib import Path
 

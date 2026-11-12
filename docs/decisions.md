@@ -745,3 +745,13 @@ Estados: **vigente**, **pendiente del dueño**, **reemplazada por Dxx**.
 - **Afecta**: `src/churnrisk/site_export.py`; `tests/contract/test_site_export.py`, `tests/contract/test_site_export_hardening.py`; U25 (la tarea `export` y el cierre que reescribe `summary.json` y el manifiesto), U28 (las figuras leen `read_site`), U29; AC29, AC42; RF27; RNF05, RNF10, RNF12; D17, D20, D27, D68.
 - **Quién**: agente de programación (Opus), en U23.
 - **Estado**: vigente.
+
+## D75 La suite rápida con el bloqueo: ocho hilos de OpenMP en el proceso de las pruebas
+
+- **Contexto**: con las pruebas de U24 en el árbol la suite rápida midió 706 pruebas en 100,66 s, sobre el presupuesto de trabajo de 100 s (D34), con el navegador abierto; U24 suma menos de 1 s y la variación entre corridas es de unos 3 s. Lo que más pesa es el entrenamiento de las 24 candidatas de las dos señales (D70). D70 descartó limitar los hilos de OpenMP por poco y atado a esta máquina; la orden del lote prohíbe fijarlos en el número de procesadores (32 hilos llevaron la prueba de los controles a 75,7 s).
+- **Opciones**: (a) dejarlo; (b) quitar casos; (c) fijar `OMP_NUM_THREADS` en 8 para el proceso de las pruebas, respetando un valor que ya traiga el entorno.
+- **Decisión**: (c). `tests/conftest.py` pone `OMP_NUM_THREADS=8` con `setdefault` antes de que se importe scikit-learn. El producto no lo lee.
+- **Motivo**: (b) debilitaría lo que se prueba. Con 8 hilos las 24 candidatas se entrenan en 6,7 s frente a 8,0 s con los 32 por defecto, con los mismos riesgos en cada fila de V2 (comparados con `numpy.array_equal`, también con 1, 2 y 4 hilos). La suite rápida midió 706 pruebas en 100,66 s antes y en 96,71 s y 97,15 s después. Queda atado a esta máquina: en una con menos procesadores, 8 hilos pueden ser más que los que tiene, y el valor del entorno manda.
+- **Afecta**: `tests/conftest.py`; D34, D35, D65, D70.
+- **Quién**: agente de programación (Opus), antes del commit de U24.
+- **Estado**: vigente.
