@@ -409,3 +409,53 @@ def test_lines_raw_is_the_same_figure_in_the_summary_and_the_validation_totals_w
     headline = json.loads((tmp_path / "site" / "summary.json").read_text(encoding="utf-8"))["headline"]
     assert totals["overlap_removed"] == 1001 + 1002 + 1003
     assert headline["lines_raw"] == totals["lines_raw"] == headline["lines_base"] + 3006
+
+
+def test_an_export_before_the_launch_has_no_model_row_and_writes_nothing(site, star_files, tmp_path):
+    """R3-model-row-untested: a star model with no model (an export before the launch) is ``SiteExportError`` and no file is written."""
+    cfg, _out, _private, _paths, meta, _w = star_files
+    conn = connect(site.warehouse)
+    try:
+        conn.execute("BEGIN")
+        conn.execute("DELETE FROM star_dim_model")
+        with pytest.raises(SiteExportError, match="no hay un modelo en el modelo estrella: el sitio se escribe después del lanzamiento"):
+            export_site(conn, tmp_path / "site", meta, cfg)
+        conn.execute("ROLLBACK")
+    finally:
+        conn.close()
+    assert not (tmp_path / "site").exists()
+
+
+def test_an_open_window_publishes_who_returned_under_the_primary_rule_and_no_churned_count(site, star_files, tmp_path):
+    """R3-open-window-pair-untested: while a cut's window is open, who churned is unknown (``null``) and who returned is a cell of its own,
+    shown only from the minimum on; once the window closes the two go through ``protect`` together."""
+    from churnrisk.site_export import _pair
+
+    cfg, out_dir, _private, _paths, meta, _w = star_files
+    minimum = cfg.site.min_cell_customers
+    tracking = pd.read_parquet(out_dir / "fact_tracking.parquet")
+    opened = 0
+    for cut in site.docs["retention.json"]["cuts"]:
+        for row in cut["by_as_of"]:
+            if row["window_closed"]:
+                continue
+            opened += 1
+            fact = tracking[(tracking["cut_key"] == int(cut["cut"].replace("-", ""))) & (tracking["as_of_key"] == int(row["as_of"].replace("-", "")))].iloc[0]
+            assert row["churned"] is None and row["contacted_churned"] is None, (cut["cut"], row["as_of"])
+            for key in ("returned", "contacted_returned"):
+                expected = None if pd.isna(fact[key]) or fact[key] < minimum else int(fact[key])
+                assert row[key] == expected, (cut["cut"], row["as_of"], key)
+    assert opened > 0, "the quick history has cuts whose window is still open"
+    assert _pair(minimum - 1, None, minimum) == (None, None) and _pair(minimum, None, minimum) == (minimum, None) and _pair(None, None, minimum) == (None, None)
+    conn = connect(site.warehouse)
+    try:
+        key, as_of = conn.execute("SELECT cut_key, as_of_key FROM star_fact_tracking WHERE window_closed = 0 ORDER BY cut_key, as_of_key LIMIT 1").fetchone()
+        conn.execute("BEGIN")
+        conn.execute("UPDATE star_fact_tracking SET returned = ? WHERE cut_key = ? AND as_of_key = ?", (minimum - 1, key, as_of))
+        export_site(conn, tmp_path / "site", meta, cfg)
+        conn.execute("ROLLBACK")
+    finally:
+        conn.close()
+    cuts = json.loads((tmp_path / "site" / "retention.json").read_text(encoding="utf-8"))["cuts"]
+    [row] = [r for c in cuts if c["cut"].replace("-", "") == str(key) for r in c["by_as_of"] if r["as_of"].replace("-", "") == str(as_of)]
+    assert (row["returned"], row["churned"], row["window_closed"]) == (None, None, False)

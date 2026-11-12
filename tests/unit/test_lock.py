@@ -325,3 +325,27 @@ def test_a_lock_from_an_earlier_boot_is_not_the_owner_even_with_the_same_start_t
     (tmp_path / lock.LOCK_NAME).unlink()
     with lock.sole_writer(tmp_path, "run", "r1"):
         assert lock.read_holder(tmp_path)["boot"] == "this-boot", "the record says the boot that took it"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows calls (OpenProcess, GetExitCodeProcess, GetProcessTimes) are what this test exercises")
+def test_on_windows_the_system_says_whether_a_process_runs_and_when_it_started(tmp_path):
+    """R3-002 (U24): the ctypes calls on this machine. This process and a child it starts are alive with a start time (100-ns steps since
+    1601) that does not change; the child started after this process; once the child ends it is not alive, and an id no process can have is
+    neither alive nor dated (OpenProcess fails with ERROR_INVALID_PARAMETER)."""
+    import time
+
+    me = os.getpid()
+    mine = lock._windows_start(me)
+    now = int((time.time() + 11_644_473_600) * 10_000_000)
+    assert lock._windows_alive(me) is True and isinstance(mine, int) and mine == lock._windows_start(me) == lock._process_start(me)
+    assert 0 < now - mine < 7 * 24 * 3600 * 10_000_000, "a date in 100-ns steps since 1601, before now"
+    child = subprocess.Popen([sys.executable, "-c", "import sys; print('up', flush=True); sys.stdin.read()"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        assert child.stdout.readline().strip() == b"up"
+        assert lock._windows_alive(child.pid) is True
+        assert lock._windows_start(child.pid) > mine
+    finally:
+        end(child)
+    assert lock._windows_alive(child.pid) is False, "ended: its exit code is no longer STILL_ACTIVE"
+    impossible = 0xFFFFFFFC
+    assert lock._windows_alive(impossible) is False and lock._windows_start(impossible) is None

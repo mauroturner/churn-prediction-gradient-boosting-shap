@@ -210,3 +210,34 @@ def test_a_model_with_a_zero_rescue_rate_or_value_shows_the_panel_s_break_even_a
     html = render_design(MODEL, tmp_path / "powerbi", private_dir, tmp_path / "zero.html", meta).read_text(encoding="utf-8")
     big = re.search(r'<div class="big">([^<]*)</div>', _block(html, "Punto de equilibrio del panel")).group(1)
     assert html_lib.unescape(big) == "—"
+
+
+def test_without_sealed_test_rows_the_evaluation_previews_show_v2_and_say_it_is_not_the_test(design, star_files, tmp_path):
+    """R3-scope-fallback-untested: with no row of the test in the evaluation facts, the curves and the bars show V2 and their titles say
+    «validación (V2), no es la prueba»; with the sealed test they say «prueba»."""
+    _cfg, out_dir, private_dir, _paths, meta, _w = star_files
+    shutil.copytree(out_dir, tmp_path / "powerbi")
+    facts = ("fact_method_metrics", "fact_gain_curve", "fact_calibration", "fact_cost_sensitivity", "fact_importance")
+    for name in facts:
+        frame = pd.read_parquet(tmp_path / "powerbi" / f"{name}.parquet")
+        frame[frame["scope"] != "test"].to_parquet(tmp_path / "powerbi" / f"{name}.parquet", index=False)
+    v2 = text_of(render_design(MODEL, tmp_path / "powerbi", private_dir, tmp_path / "v2.html", meta).read_text(encoding="utf-8"))
+    sealed = text_of(design[1])
+    for title in ("AUC por método", "Curva de ganancia en la prueba", "Calibración"):
+        assert f"{title} (validación (V2), no es la prueba)" in v2 and f"{title} (prueba)" not in v2, title
+        assert f"{title} (prueba)" in sealed, title
+
+
+def test_every_visual_of_the_specification_has_its_own_preview_never_the_placeholder(design):
+    """R2-title-dispatch: the previews are dispatched by the visual's title (and the cards by their measure), so a title renamed on one side
+    only would fall back to a placeholder: no visual of the specification gets one."""
+    html = design[1]
+    checked = 0
+    for page in MODEL.pages:
+        for v in page.visuals:
+            if v.kind == "slicer":
+                continue
+            body = _block(html, v.title_es)
+            assert f'<div class="rows"><p>{html_lib.escape(v.title_es)}</p></div>' not in body and "Se calcula en Power BI." not in body, v.title_es
+            checked += 1
+    assert checked > 20
