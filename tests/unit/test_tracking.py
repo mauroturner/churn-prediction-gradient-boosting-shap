@@ -9,6 +9,8 @@ import pandas as pd
 import pytest
 
 from churnrisk.tracking import track_counts
+# `tracking_case` is not new in U19: it was built with the other hand cases in U03 (commit a2dc7ed,
+# tests/fixtures/hand_cases.py), so this module imports it from the unchanged fixture file.
 from tests.fixtures.hand_cases import tracking_case
 
 
