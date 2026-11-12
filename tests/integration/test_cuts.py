@@ -12,9 +12,9 @@ import pytest
 
 from churnrisk.config import SealedConfig
 from churnrisk.cuts import build_cuts, cut_dates, label_end
-from churnrisk.deliveries import delivery_plan
+from churnrisk.deliveries import delivery_plan, delivery_rows
 from churnrisk.split import PurgeError, blocks, is_censored
-from churnrisk.warehouse import CheckFailedError, connect
+from churnrisk.warehouse import CheckFailedError, connect, load_delivery
 from tests.fixtures.make_fixture import WINDOW_END
 
 SHA = "d" * 64
@@ -98,11 +98,14 @@ def test_the_features_and_the_labels_of_a_cut_are_insert_only(launched, table):
         conn.execute(f"INSERT OR REPLACE INTO {table} VALUES ({', '.join('?' for _ in row)})", row)
 
 
-def test_a_failing_control_of_the_cuts_rolls_the_build_back(cfg, loaded_masters, copy_of):
-    """A label written by hand before its window closed (known_as_of < label_end): the next build fails its control and writes nothing."""
-    path = copy_of(loaded_masters(2)[0])
+def test_a_failing_control_of_the_cuts_rolls_the_build_back(cfg, canonical, loaded_masters, launch_cuts, copy_of):
+    """A label written by hand before its window closed (known_as_of < label_end): the next build fails its control and writes nothing. The
+    launch's cuts are the session's (``launch_cuts``, built by r1 at 2011-07-31 with the same view); r2 loads the next delivery on a copy (D81)."""
+    frame, _report = canonical
+    spec = delivery_plan(cfg)[1]
+    path = copy_of(launch_cuts)
     conn = connect(path)
-    build_cuts(conn, date(2011, 7, 31), SealedConfig.of(cfg, SHA), "r1")
+    load_delivery(conn, delivery_rows(spec, frame), spec, "r2", sha256=loaded_masters.entries[spec.delivery_id].sha256)
     conn.execute("INSERT INTO cut_labels VALUES ('2011-06-01', 99999, 1, '2011-08-29', '2011-07-31', 'by hand')")
     conn.close()
     before = file_sha(path)

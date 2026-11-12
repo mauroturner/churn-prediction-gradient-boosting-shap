@@ -28,6 +28,7 @@ count, the population and the label of every cut, written by an independent read
 from __future__ import annotations
 
 import hashlib
+import html
 import io
 import math
 import re
@@ -40,9 +41,8 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 import numpy as np
-import openpyxl
 import pandas as pd
-from openpyxl.utils.datetime import to_excel
+from openpyxl.utils.datetime import from_excel, to_excel
 
 MEMBER = "online_retail_II.xlsx"
 SHEETS = ("Year 2009-2010", "Year 2010-2011")
@@ -452,8 +452,8 @@ def _workbook_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
     return _normalise_xlsx(buffer.getvalue())
 
 
-def write_zip(path: Path, members: list[tuple[str, bytes]], prefix: bytes = b"") -> Path:
-    """A zip with fixed timestamps; `prefix` bytes before it (a zip reader finds the archive after them)."""
+def write_zip(path: Path, members: list[tuple[str, bytes]], prefix: bytes = b"", compresslevel: int | None = None) -> Path:
+    """A zip with fixed timestamps; `prefix` bytes before it (a zip reader finds the archive after them); `compresslevel` as zipfile's."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     buffer = io.BytesIO()
@@ -462,7 +462,7 @@ def write_zip(path: Path, members: list[tuple[str, bytes]], prefix: bytes = b"")
             info = zipfile.ZipInfo(name, date_time=ZIP_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o600 << 16
-            archive.writestr(info, payload)
+            archive.writestr(info, payload, compresslevel=compresslevel)
     path.write_bytes(prefix + buffer.getvalue())
     return path
 
@@ -710,9 +710,10 @@ def _truth(path: Path, seed: int, signal: str, n_customers: int, payload: bytes,
     kept = [(1, i, r) for i, r in enumerate(first, start=1)]
     kept += [(2, i, r) for i, r in enumerate(second, start=1) if r["InvoiceDate"].date() > OVERLAP_END]
     flat = [r for _s, _i, r in kept]
+    ids = {id(r): None if np.isnan(r["Customer ID"]) else int(r["Customer ID"]) for r in flat}   # each row's customer, read once (D81)
 
     def customer(r: dict) -> int | None:
-        return None if np.isnan(r["Customer ID"]) else int(r["Customer ID"])
+        return ids[id(r)]
 
     invoice_dates: dict[str, date] = {}
     for r in flat:
@@ -752,13 +753,15 @@ def _truth(path: Path, seed: int, signal: str, n_customers: int, payload: bytes,
     labels: dict[date, dict[int, int]] = {}
     m, n = timedelta(days=active_days), timedelta(days=horizon_days)
     for cut in cut_dates():
+        # every day of `before` is before the cut and every day of `after` on or before the end of the window (net_purchase_days returns the
+        # days known on its date), so «a day in [c - M, c - 1]» is «the last day from c - M on» and «a day in [c, end]» is «the last from c on»
         before = net_purchase_days(lines, cut - timedelta(days=1))
-        active = tuple(sorted(c for c, days in before.items() if any(cut - m <= d < cut for d in days)))
+        active = tuple(sorted(c for c, days in before.items() if max(days) >= cut - m))
         population[cut] = active
         end = cut + n - timedelta(days=1)
         if end <= WINDOW_END:
             after = net_purchase_days(lines, end)
-            labels[cut] = {c: int(not any(cut <= d <= end for d in after.get(c, ()))) for c in active}
+            labels[cut] = {c: int(not (c in after and max(after[c]) >= cut)) for c in active}
 
     guests = [r for r in flat if customer(r) is None]
     return FixtureTruth(
@@ -784,8 +787,47 @@ def _truth(path: Path, seed: int, signal: str, n_customers: int, payload: bytes,
 # --- malformed variants ---------------------------------------------------------------------------------------------
 
 
+_SHEET_ENTRY = re.compile(r'<sheet name="([^"]*)" sheetId="\d+" r:id="rId(\d+)"/>')
+_ROW = re.compile(r'<row r="\d+">(.*?)</row>')
+_CELL = re.compile(r'<c r="([A-Z]+)\d+"([^>]*)>(.*?)</c>')
+_TEXT = re.compile(r"<t[^>]*>(.*?)</t>", re.S)
+_INTEGER = re.compile(r"-?\d+")
+
+
+def _own_value(attributes: str, body: str):
+    """The value of one cell as ``_cell_xml`` wrote it: an inline string, a boolean, a date and time (the date-time style) or a number."""
+    if 't="inlineStr"' in attributes:
+        return html.unescape(_TEXT.search(body).group(1))
+    text = re.search(r"<v>(.*?)</v>", body).group(1)
+    if 't="b"' in attributes:
+        return bool(int(text))
+    if f's="{_DATETIME_STYLE}"' in attributes:
+        return from_excel(float(text))
+    return int(text) if _INTEGER.fullmatch(text) else float(text)
+
+
+def _own_sheets(payload: bytes) -> dict[str, list[list]]:
+    """The rows of each sheet of a workbook this module wrote (``_workbook_bytes``), header first, read from its XML: the malformed variants
+    are rebuilt from them with the same writer, which takes a fraction of opening and saving the workbook with openpyxl (D81). Reading them
+    back with openpyxl gives the same values (``test_each_malformed_variant_is_damaged_in_its_one_way``)."""
+    sheets: dict[str, list[list]] = {}
+    with zipfile.ZipFile(io.BytesIO(payload)) as book:
+        for name, number in _SHEET_ENTRY.findall(book.read("xl/workbook.xml").decode("utf-8")):
+            rows = []
+            for row in _ROW.findall(book.read(f"xl/worksheets/sheet{number}.xml").decode("utf-8")):
+                rows.append({letter: _own_value(attributes, body) for letter, attributes, body in _CELL.findall(row)})
+            letters = [_column_letter(i) for i in range(1, len(rows[0]) + 1)]
+            sheets[html.unescape(name)] = [[cells.get(letter) for letter in letters] for cells in rows]
+    return sheets
+
+
+def _sheet_frame(rows: list[list]) -> pd.DataFrame:
+    return pd.DataFrame(rows[1:], columns=rows[0], dtype=object)
+
+
 def make_malformed(base: Path, kind: str, out: Path) -> Path:
-    """Damage the fixture at `base` in one documented way and write the result at `out`; `base` is left untouched."""
+    """Damage the fixture at `base` in one documented way and write the result at `out`; `base` is left untouched. The workbook variants are
+    rebuilt from the base's own sheets with this module's writer (D81)."""
     if kind not in MALFORMED_KINDS:
         raise ValueError(f"unknown malformed kind {kind!r}; expected one of {', '.join(MALFORMED_KINDS)}")
     original = Path(base).read_bytes()
@@ -795,52 +837,47 @@ def make_malformed(base: Path, kind: str, out: Path) -> Path:
         return write_zip(out, [(MEMBER, payload), ("notes.txt", b"not part of the source\n")])
     if kind == "member_with_path":
         return write_zip(out, [(f"../{MEMBER}", payload)])
-    if kind == "inflated_member":   # compresses to about 100 KB and inflates past max_member_bytes
-        return write_zip(out, [(MEMBER, bytes(INFLATED_BYTES))])
+    if kind == "inflated_member":   # compresses to about 450 KB at the fastest level and inflates past max_member_bytes
+        return write_zip(out, [(MEMBER, bytes(INFLATED_BYTES))], compresslevel=1)
     if kind == "oversize":          # the same archive, preceded by enough bytes to pass max_bytes
         return write_zip(out, [(MEMBER, payload)], prefix=bytes(max(0, OVERSIZE_BYTES - len(original))))
 
-    workbook = openpyxl.load_workbook(io.BytesIO(payload))
-    first, second = workbook[SHEETS[0]], workbook[SHEETS[1]]
-    col = {name: index for index, name in enumerate(SOURCE_COLUMNS, start=1)}
+    sheets = _own_sheets(payload)
+    first, second = sheets[SHEETS[0]], sheets[SHEETS[1]]          # header first: data row i is rows[i], Excel row i + 1
+    col = {name: index for index, name in enumerate(SOURCE_COLUMNS)}
     if kind == "wrong_hash":
-        row = next(r for r in range(second.max_row, 1, -1) if second.cell(r, col["Description"]).value)
-        second.cell(row, col["Description"]).value = str(second.cell(row, col["Description"]).value) + " (changed)"
+        row = next(r for r in reversed(second[1:]) if r[col["Description"]])
+        row[col["Description"]] = str(row[col["Description"]]) + " (changed)"
     elif kind == "missing_sheet":
-        del workbook[SHEETS[1]]
+        del sheets[SHEETS[1]]
     elif kind == "renamed_sheet":
-        second.title = "Year 2010-11"
+        sheets = {SHEETS[0]: first, "Year 2010-11": second}
     elif kind == "extra_column":
-        for sheet in (first, second):
-            sheet.cell(1, len(SOURCE_COLUMNS) + 1).value = "Notes"
-            sheet.cell(2, len(SOURCE_COLUMNS) + 1).value = "extra"
+        for rows in (first, second):
+            for index, row in enumerate(rows):
+                row.append("Notes" if index == 0 else ("extra" if index == 1 else None))
     elif kind == "missing_column":
-        for sheet in (first, second):
-            sheet.delete_cols(col["Price"])
+        for rows in (first, second):
+            for row in rows:
+                del row[col["Price"]]
     elif kind == "renamed_column":
-        for sheet in (first, second):
-            sheet.cell(1, col["Customer ID"]).value = "CustomerID"
+        for rows in (first, second):
+            rows[0][col["Customer ID"]] = "CustomerID"
     elif kind == "bad_date":
-        first.cell(5, col["InvoiceDate"]).value = "not a date"
+        first[4][col["InvoiceDate"]] = "not a date"
     elif kind == "bad_quantity":
-        first.cell(5, col["Quantity"]).value = "ten"
+        first[4][col["Quantity"]] = "ten"
     elif kind == "six_digit_customer":
-        row = next(r for r in range(2, first.max_row + 1) if first.cell(r, col["Customer ID"]).value is not None)
-        first.cell(row, col["Customer ID"]).value = 123456.0
+        next(r for r in first[1:] if r[col["Customer ID"]] is not None)[col["Customer ID"]] = 123456.0
     elif kind == "overlap_mismatch":
-        row = next(r for r in range(2, second.max_row + 1) if second.cell(r, col["InvoiceDate"]).value.date() >= OVERLAP_START)
-        second.cell(row, col["Quantity"]).value = second.cell(row, col["Quantity"]).value + 1
+        row = next(r for r in second[1:] if r[col["InvoiceDate"]].date() >= OVERLAP_START)
+        row[col["Quantity"]] += 1
     elif kind == "two_customers_one_invoice":
-        rows = list(first.iter_rows(min_row=2, values_only=True))
-        for index in range(len(rows) - 1):
-            a, b = rows[index], rows[index + 1]
-            if a[0] == b[0] and a[6] is not None and b[6] is not None and a[4].date() < OVERLAP_START:
-                first.cell(index + 3, col["Customer ID"]).value = float(CASE_BASE + 99)
+        data, c, ts, invoice = first[1:], col["Customer ID"], col["InvoiceDate"], col["Invoice"]
+        for a, b in zip(data, data[1:]):
+            if a[invoice] == b[invoice] and a[c] is not None and b[c] is not None and a[ts].date() < OVERLAP_START:
+                b[c] = float(CASE_BASE + 99)
                 break
         else:  # pragma: no cover - the fixture always has an invoice with two customer lines
             raise RuntimeError("no invoice with two customer lines to damage")
-    workbook.properties.created = FIXED_TIME
-    workbook.properties.modified = FIXED_TIME
-    buffer = io.BytesIO()
-    workbook.save(buffer)
-    return write_zip(out, [(MEMBER, _normalise_xlsx(buffer.getvalue()))])
+    return write_zip(out, [(MEMBER, _workbook_bytes({name: _sheet_frame(rows) for name, rows in sheets.items()}))])

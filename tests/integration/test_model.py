@@ -38,11 +38,16 @@ def paired_customer_bootstrap(y, a, b, customers, resamples: int = 1000, seed: i
     """``(low, high, difference)`` of AUC(a) - AUC(b): 2.5 and 97.5 percentiles over `resamples` draws of whole customers with replacement,
     the same customers for both scores; a draw with one class is discarded (D21). The evaluation's own bootstrap is U17's."""
     y, a, b, customers = (np.asarray(v) for v in (y, a, b, customers))
-    groups = [np.flatnonzero(customers == c) for c in np.unique(customers)]
+    # each customer's rows, in index order, customers in the order of np.unique: a draw takes them by offsets, the rows that concatenating the
+    # drawn customers' groups one by one gave, without a Python loop over the customers (D81)
+    order = np.argsort(customers, kind="stable")
+    _ids, start, count = np.unique(customers[order], return_index=True, return_counts=True)
     rng = np.random.default_rng(seed)
     diffs = []
     for _ in range(resamples):
-        rows = np.concatenate([groups[i] for i in rng.integers(0, len(groups), len(groups))])
+        pick = rng.integers(0, len(start), len(start))
+        lengths = count[pick]
+        rows = order[np.repeat(start[pick], lengths) + np.arange(lengths.sum()) - np.repeat(np.cumsum(lengths) - lengths, lengths)]
         if y[rows].min() == y[rows].max():
             continue
         diffs.append(auc(y[rows], a[rows]) - auc(y[rows], b[rows]))

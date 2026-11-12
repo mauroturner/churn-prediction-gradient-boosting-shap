@@ -11,6 +11,7 @@ history's own folder.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import shutil
 import sqlite3
 from dataclasses import dataclass, field
@@ -31,9 +32,16 @@ from churnrisk.warehouse import apply_schema, connect, load_delivery
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+@functools.cache
+def _quick_base() -> PipelineConfig:
+    """``config/pipeline.quick.toml`` read once per session: the configuration is immutable and the tests ask for it about two hundred times
+    (D81). ``test_config.py`` reads the files itself."""
+    return load_config(PROJECT_ROOT / "config" / "pipeline.quick.toml")
+
+
 def quick_config(folder: Path, **sections) -> PipelineConfig:
     """The quick configuration with every path under `folder`; `sections` replace whole sections (``costs=...``)."""
-    base = load_config(PROJECT_ROOT / "config" / "pipeline.quick.toml")
+    base = _quick_base()
     folder = Path(folder)
     paths = dataclasses.replace(
         base.paths, raw_dir=folder / "raw", interim_dir=folder / "interim", warehouse=folder / "churnrisk.sqlite", models_dir=folder / "models",

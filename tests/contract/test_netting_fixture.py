@@ -29,7 +29,9 @@ def test_the_net_purchase_days_agree_with_the_fixture_oracle_before_every_cut_an
     purchases, cancellations = netting_inputs(frame)
     for as_of in [cut - timedelta(days=1) for cut in cut_dates()] + [WINDOW_END]:
         days = customer_days(net_cancellations(purchases, cancellations, as_of).net_lines)
-        mine = {customer: set(group.dt.date) for customer, group in days.groupby("customer_id")["day"]}
+        mine: dict[int, set] = {}
+        for customer, day in zip(days["customer_id"].tolist(), days["day"].dt.date.tolist(), strict=True):   # one pass, not a group per customer (D81)
+            mine.setdefault(customer, set()).add(day)
         assert mine == net_purchase_days(lines, as_of), as_of
     result = net_cancellations(purchases, cancellations, WINDOW_END)
     assert len(result.unmatched) == _unmatched_cancellations(lines, WINDOW_END) == fixture_truth.unmatched_cancellations_at_end

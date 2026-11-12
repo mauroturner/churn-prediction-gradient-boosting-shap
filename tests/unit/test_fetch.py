@@ -10,6 +10,8 @@ import logging
 import os
 import re
 import secrets
+import socket
+import sys
 import time
 import urllib.parse
 from pathlib import Path
@@ -183,9 +185,12 @@ def test_http_errors_and_other_statuses_are_download_errors_that_name_the_status
     assert leftovers(tmp_path) == []
 
 
-def test_a_refused_connection_is_a_download_error(tmp_path):
+def test_a_refused_connection_is_a_download_error(tmp_path, monkeypatch):
     with FileServer(BODY) as server:
         url = server.url("/file.zip")
+    if sys.platform == "win32":   # Windows retries a refused connection for 2 s before it gives the error; the same error, given at once (D81)
+        refused = ConnectionRefusedError(10061, "No se puede establecer una conexión ya que el equipo de destino denegó expresamente dicha conexión")
+        monkeypatch.setattr(socket, "create_connection", lambda *a, **k: (_ for _ in ()).throw(refused))
     with pytest.raises(DownloadError, match="conectar"):
         download_file(url, tmp_path / "f.zip", GOOD, ["127.0.0.1"], 3, 10**7, 30, 1000, 2, insecure_hosts=LOCAL)
     assert leftovers(tmp_path) == []

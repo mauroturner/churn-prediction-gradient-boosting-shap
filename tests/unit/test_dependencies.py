@@ -72,20 +72,31 @@ def third_party_imports(root: Path, project: Path) -> dict[str, set[str]]:
     standard library and outside this project."""
     found: dict[str, set[str]] = {}
     for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                names = [node.module]
-            else:
-                continue
-            for name in names:
-                top = name.split(".", 1)[0]
-                if top in sys.stdlib_module_names or top == "__future__" or top in LOCAL_TOP_LEVEL:
-                    continue
-                found.setdefault(top, set()).add(path.relative_to(project).as_posix())
+        stat = path.stat()
+        for top in _imported_tops(str(path), stat.st_mtime_ns, stat.st_size):
+            found.setdefault(top, set()).add(path.relative_to(project).as_posix())
     return found
+
+
+@functools.lru_cache(maxsize=4096)
+def _imported_tops(path: str, mtime_ns: int, size: int) -> frozenset[str]:
+    """The third-party top-level modules one file imports, parsed once per version of the file (its time and size are part of the key): the
+    project's files are scanned by five tests (D81)."""
+    del mtime_ns, size
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"), filename=path)
+    tops = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names = [node.module]
+        else:
+            continue
+        for name in names:
+            top = name.split(".", 1)[0]
+            if top not in sys.stdlib_module_names and top != "__future__" and top not in LOCAL_TOP_LEVEL:
+                tops.add(top)
+    return frozenset(tops)
 
 
 @functools.cache

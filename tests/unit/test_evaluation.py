@@ -7,6 +7,7 @@ import dataclasses
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import rankdata
 from sklearn.metrics import roc_auc_score
 
 from churnrisk.evaluation import (
@@ -51,6 +52,15 @@ def test_ten_row_hand_case():
     assert np.trapezoid(fine["tpr"], fine["fpr"]) == pytest.approx(19 / 24, abs=1e-3), "the area under the curve is the AUC"
 
 
+def auc_by_ranks(y: np.ndarray, score: np.ndarray) -> float:
+    """The AUC as the Mann-Whitney statistic of the average ranks (ties by halves): ``roc_auc_score``'s value, computed in a fraction of its
+    time for the 1,200 resamples of the reference below (D81)."""
+    ranks = rankdata(score)
+    positives = y == 1
+    n1, n0 = int(positives.sum()), int((~positives).sum())
+    return float((ranks[positives].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
 def by_hand(case: pd.DataFrame, n: int, seed: int, unit: str) -> tuple[list[float], int]:
     """The resamples drawn with numpy's generator, by whole customers (``unit="customer"``) or by rows: the reference of the test."""
     rng = np.random.default_rng(seed)
@@ -66,7 +76,7 @@ def by_hand(case: pd.DataFrame, n: int, seed: int, unit: str) -> tuple[list[floa
         if y[rows].min() == y[rows].max():
             discarded += 1
             continue
-        diffs.append(roc_auc_score(y[rows], a[rows]) - roc_auc_score(y[rows], b[rows]))
+        diffs.append(auc_by_ranks(y[rows], a[rows]) - auc_by_ranks(y[rows], b[rows]))
     return diffs, discarded
 
 
