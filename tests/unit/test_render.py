@@ -187,3 +187,26 @@ def test_without_exported_files_the_whole_document_is_still_written_with_empty_p
     html = render_design(MODEL, tmp_path / "none", tmp_path / "none_private", tmp_path / "empty.html", meta).read_text(encoding="utf-8")
     assert all(f"Página {i}: {p.name_es}" in text_of(html) for i, p in enumerate(MODEL.pages, start=1))
     assert 'class="masked"' not in html
+
+
+# --- the review advisories of U21-U22 ------------------------------------------------------------------------------------------------
+
+
+def test_a_missing_customer_number_is_masked_as_a_dash_like_every_other_missing_value():
+    """R3-mask-nan-customer-id: the mask degrades like the other formatters (``_int``, ``_fmt``) instead of raising."""
+    from churnrisk.dashboard.render import HIDDEN
+
+    assert mask(None) == HIDDEN and mask(float("nan")) == HIDDEN and mask(pd.NA) == HIDDEN and mask(90123) == MASK * 5
+
+
+@pytest.mark.parametrize("column", ["rescue_rate", "retained_value"])
+def test_a_model_with_a_zero_rescue_rate_or_value_shows_the_panel_s_break_even_as_a_dash(star_files, tmp_path, column):
+    """R3-break-even-zero-division: a break-even with a zero divisor is no figure; the design is still written, with a dash."""
+    _cfg, out_dir, private_dir, _paths, meta, _w = star_files
+    shutil.copytree(out_dir, tmp_path / "powerbi")
+    model = pd.read_parquet(tmp_path / "powerbi" / "dim_model.parquet")
+    model[column] = 0.0
+    model.to_parquet(tmp_path / "powerbi" / "dim_model.parquet", index=False)
+    html = render_design(MODEL, tmp_path / "powerbi", private_dir, tmp_path / "zero.html", meta).read_text(encoding="utf-8")
+    big = re.search(r'<div class="big">([^<]*)</div>', _block(html, "Punto de equilibrio del panel")).group(1)
+    assert html_lib.unescape(big) == "—"

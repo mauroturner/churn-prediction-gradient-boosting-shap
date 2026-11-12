@@ -31,7 +31,7 @@ from churnrisk.dashboard.semantic_model import (
     dax_measure_refs,
     validate_model,
 )
-from churnrisk.export import ExportMeta
+from churnrisk.export import ExportMeta, prefer_sealed
 from churnrisk.files import write_atomic
 
 logger = logging.getLogger(__name__)
@@ -122,10 +122,8 @@ class _Data:
         return n < self.min_cell
 
     def scope(self, name: str) -> tuple[pd.DataFrame, str]:
-        """The sealed rows of an evaluation fact for the test, or else those of V2, with the Spanish name of what is shown."""
-        frame = self.t[name]
-        sealed = frame[frame["seal_state"] == "sealed"] if "seal_state" in frame.columns else frame
-        frame = sealed if len(sealed) else frame
+        """The rows of an evaluation fact (``prefer_sealed``) for the test, or else those of V2, with the Spanish name of what is shown."""
+        frame = prefer_sealed(self.t[name])
         for scope, label in (("test", "prueba"), ("valid_v2", "validación (V2), no es la prueba")):
             part = frame[frame["scope"] == scope] if "scope" in frame.columns else frame.iloc[0:0]
             if len(part):
@@ -172,7 +170,10 @@ def _note(text: str) -> str:
 
 
 def mask(customer_id) -> str:
-    """A customer number as as many «•» as it has digits: the column keeps its width and the number never reaches the page."""
+    """A customer number as as many «•» as it has digits: the column keeps its width and the number never reaches the page. A missing number
+    is a dash, as every other formatter shows a missing value."""
+    if customer_id is None or pd.isna(customer_id):
+        return HIDDEN
     return MASK * len(str(int(customer_id)))
 
 
@@ -192,7 +193,8 @@ def _slicer(data: _Data, field: str) -> str:
 
 def _cards(data: _Data) -> dict:
     last, model = data.last, data.model_row
-    break_even = None if model is None else float(model["offer_cost"]) / (float(model["rescue_rate"]) * float(model["retained_value"]))
+    divisor = None if model is None else float(model["rescue_rate"]) * float(model["retained_value"])
+    break_even = float(model["offer_cost"]) / divisor if divisor else None        # no figure without a positive rescue rate and value
     panel = last[last["risk"] >= break_even] if break_even is not None and len(last) else last.iloc[0:0]
     benefit = None if model is None else float((panel["risk"] * float(model["rescue_rate"]) * float(model["retained_value"]) - float(model["offer_cost"])).sum())
     cut = "último corte" if data.last_cut is None else f"corte {str(data.last_cut)[:4]}-{str(data.last_cut)[4:6]}"
@@ -290,9 +292,7 @@ def _churn_lines(data: _Data, v: Visual) -> str:
 
 
 def _criteria(data: _Data) -> str:
-    frame = data.t["fact_evaluation_summary"]
-    sealed = frame[frame["seal_state"] == "sealed"] if len(frame) else frame
-    frame = (sealed if len(sealed) else frame).sort_values("criterion_id")
+    frame = prefer_sealed(data.t["fact_evaluation_summary"]).sort_values("criterion_id")
     rows = [[r.criterion_id, r.name_es, _dec(r.value, 3), r.threshold_es, r.verdict_es] for r in frame.itertuples()]
     return _table_html(["Criterio", "Nombre", "Valor", "Umbral", "Veredicto"], rows, {2})
 
@@ -305,9 +305,8 @@ def _auc_bars(data: _Data, v: Visual) -> str:
 
 
 def _sensitivity(data: _Data) -> str:
-    frame = data.t["fact_sensitivity"]
-    sealed = frame[frame["seal_state"] == "sealed"] if len(frame) else frame
-    rows = [[r.variant_es, r.method_key, _dec(r.auc), _dec(r.diff_ci_low), _dec(r.diff_ci_high)] for r in (sealed if len(sealed) else frame).itertuples()]
+    frame = prefer_sealed(data.t["fact_sensitivity"])
+    rows = [[r.variant_es, r.method_key, _dec(r.auc), _dec(r.diff_ci_low), _dec(r.diff_ci_high)] for r in frame.itertuples()]
     return _table_html(["Variante", "Método", "AUC", "IC inferior", "IC superior"], rows[:8], {2, 3, 4})
 
 

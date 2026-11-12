@@ -93,6 +93,7 @@ def test_no_identifier_or_sentinel_and_small_cells_suppressed(site, fixture_trut
             for key in ("returned", "churned", "contacted_churned", "contacted_returned"):
                 assert row[key] is None or row[key] >= minimum, (cut["cut"], row["as_of"], key, row[key])
         assert cut["contacted"] is None or cut["contacted"] >= minimum
+        assert cut["scored"] is None or cut["scored"] >= minimum
     for cell in retention["by_country"]:
         if cell["suppressed"]:
             assert (cell["customers"], cell["contacted"], cell["churn_rate_observed"]) == (None, None, None) and cell["country_es"]
@@ -320,3 +321,91 @@ def test_a_test_evaluated_with_another_configuration_is_not_published_as_the_res
     assert summary["evaluation_status"] == "post_seal"
     assert set(summary["headline"]["auc"].values()) == {None} and summary["headline"]["test_churn_rate"] is None
     assert set(summary["headline"]["net_benefit_per_1000"].values()) == {None}
+
+
+# --- the review advisories of U23 ------------------------------------------------------------------------------------------------
+
+
+def star_tables_read() -> list[str]:
+    """The ``star_*`` tables that the queries of ``site_export.py`` name (every string of the module but the ``REQUIRED_STAR`` list itself)."""
+    import ast
+
+    from churnrisk import site_export
+
+    tree = ast.parse(Path(site_export.__file__).read_text(encoding="utf-8"))
+    skipped = {id(node) for assign in ast.walk(tree) if isinstance(assign, ast.Assign) and any(getattr(t, "id", None) == "REQUIRED_STAR" for t in assign.targets)
+               for node in ast.walk(assign.value)}
+    texts = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in skipped]
+    return sorted({name for text in texts for name in re.findall(r"\bstar_(?:dim|fact)_[a-z0-9_]+", text)})
+
+
+def test_the_export_checks_every_star_table_its_queries_read_from_one_list():
+    """R2-require-star-incomplete: ``_require_star`` checks the one list of the star tables the export reads, all of them."""
+    from churnrisk.site_export import REQUIRED_STAR
+
+    read = star_tables_read()
+    assert len(read) >= 16 and sorted(REQUIRED_STAR) == read, sorted(set(read) ^ set(REQUIRED_STAR))
+
+
+@pytest.mark.parametrize("table", star_tables_read())
+def test_a_missing_star_table_is_refused_by_name_before_any_file_is_written(site, star_files, tmp_path, table):
+    """R2-require-star-incomplete, R3-require-star-untested: a star model missing any table the export reads is ``SiteExportError`` naming
+    that table, raised before anything is built or written (not a database error from deep inside a builder)."""
+    cfg, _out, _private, _paths, meta, _w = star_files
+    conn = connect(site.warehouse)
+    try:
+        conn.execute("BEGIN")
+        conn.execute(f"DROP TABLE {table}")
+        with pytest.raises(SiteExportError, match=re.escape(f"faltan las tablas del modelo estrella ['{table}']")):
+            export_site(conn, tmp_path / "site", meta, cfg)
+        conn.execute("ROLLBACK")
+    finally:
+        conn.close()
+    assert not (tmp_path / "site").exists()
+
+
+def test_a_cut_scored_below_the_minimum_publishes_neither_its_count_nor_its_contacts(site, star_files, tmp_path):
+    """R3-scored-not-suppressed: the customers scored at a cut are a count of customers, hidden under the minimum like ``label.json``'s
+    customers of a cut; its contacts and its share go with it. The other cuts keep their counts."""
+    cfg, _out, _private, _paths, meta, _w = star_files
+    minimum = cfg.site.min_cell_customers
+    conn = connect(site.warehouse)
+    try:
+        first = conn.execute("SELECT MIN(cut_key) FROM star_fact_tracking").fetchone()[0]
+        conn.execute("BEGIN")
+        conn.execute("UPDATE star_fact_tracking SET scored = ?, contacted = 0 WHERE cut_key = ?", (minimum - 1, first))
+        export_site(conn, tmp_path / "site", meta, cfg)
+        conn.execute("ROLLBACK")
+    finally:
+        conn.close()
+    cuts = {c["cut"]: c for c in json.loads((tmp_path / "site" / "retention.json").read_text(encoding="utf-8"))["cuts"]}
+    small = cuts[f"{str(first)[:4]}-{str(first)[4:6]}-{str(first)[6:]}"]
+    assert (small["scored"], small["contacted"], small["contact_share"]) == (None, None, None)
+    shown = {c["cut"]: c["scored"] for c in site.docs["retention.json"]["cuts"]}
+    assert all(cuts[k]["scored"] == v for k, v in shown.items() if k != small["cut"]) and all(v >= minimum for v in shown.values())
+
+
+def test_lines_raw_is_the_same_figure_in_the_summary_and_the_validation_totals_whatever_i03_aggregates(site, star_files, tmp_path, monkeypatch):
+    """R2-lines-raw-duplicated-aggregation: ``summary.json`` and ``validation_rules.json`` take the overlap of I03 from one aggregation, the
+    rule's own: if I03 were summed per run, both files would say so."""
+    from churnrisk.validate import Aggregation
+
+    cfg, _out, _private, _paths, meta, _w = star_files
+    monkeypatch.setitem(RULES, "I03", dataclasses.replace(RULES["I03"], aggregation=Aggregation.PER_RUN))
+    rule = RULES["I03"]
+    conn = connect(site.warehouse)
+    try:
+        runs = [r[0] for r in conn.execute("SELECT run_key FROM deliveries WHERE status = 'loaded' ORDER BY as_of_date")][:3]
+        conn.execute("BEGIN")
+        conn.execute("DELETE FROM validation_results WHERE rule_id = 'I03'")
+        conn.executemany("INSERT INTO validation_results (run_key, rule_id, name_es, severity, scope, aggregation, passed, rows_affected, customers_affected, "
+                         "value_gbp, examples_json) VALUES (?, 'I03', ?, ?, ?, ?, 1, ?, 0, 0.0, '[]')",
+                         [(run, rule.name_es, rule.severity.value, rule.scope, rule.aggregation.value, 1000 + i) for i, run in enumerate(runs, start=1)])
+        export_site(conn, tmp_path / "site", meta, cfg)
+        conn.execute("ROLLBACK")
+    finally:
+        conn.close()
+    totals = json.loads((tmp_path / "site" / "validation_rules.json").read_text(encoding="utf-8"))["totals"]
+    headline = json.loads((tmp_path / "site" / "summary.json").read_text(encoding="utf-8"))["headline"]
+    assert totals["overlap_removed"] == 1001 + 1002 + 1003
+    assert headline["lines_raw"] == totals["lines_raw"] == headline["lines_base"] + 3006

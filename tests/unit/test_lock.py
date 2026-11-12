@@ -243,3 +243,85 @@ def test_a_release_retries_while_the_file_is_held_and_removes_it_once_it_is_clos
             pass
     assert len(refusals) == 2 and not (tmp_path / lock.LOCK_NAME).exists()
     assert not [r for r in caplog.records if r.name == "churnrisk.lock"]
+
+
+# --- the review advisories of U24 (R4-001, R4-002, R3-001) --------------------------------------------------------------------------
+
+
+def test_a_nested_rewrite_that_retries_does_not_hold_up_another_folder(tmp_path, monkeypatch):
+    """R4-001: while the inner take of one folder retries its rewrite (another process has the file open), a thread taking the lock of another
+    folder is not kept waiting: the retries run outside the registry of the locks this process holds."""
+    first, second = tmp_path / "a", tmp_path / "b"
+    real_replace = os.replace
+    seen = {}
+
+    def replace(src, dst):
+        if Path(dst) == first / lock.LOCK_NAME and "other" not in seen:
+            def other():
+                lock.release(lock.acquire(second, command="run", run_key="b1"))
+                seen["done"] = True
+
+            seen["other"] = thread = threading.Thread(target=other)
+            thread.start()
+            thread.join(timeout=1.0)
+            seen["in_time"] = not thread.is_alive()
+            raise PermissionError(32, "being used by another process")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(lock.os, "replace", replace)
+    with lock.sole_writer(first, "replay", None):
+        with lock.sole_writer(first, "run", "a1"):
+            assert lock.read_holder(first)["run_key"] == "a1", "the rewrite was retried and done"
+    seen["other"].join(timeout=30)
+    assert seen.get("done") and seen["in_time"], "the other folder's lock waited for this folder's retries"
+    assert not (first / lock.LOCK_NAME).exists() and not (second / lock.LOCK_NAME).exists() and lock._HELD == {}
+
+
+def test_a_thread_that_takes_the_lock_while_another_gives_it_back_waits_and_takes_it(tmp_path, monkeypatch):
+    """R3-001: a thread that asks for the lock while the thread that held it is removing the file is not refused as if a live holder were
+    there: it waits for the removal and takes the lock."""
+    real_read = lock.read_holder
+    outcome = {}
+
+    def read_holder(folder):
+        if "thread" not in outcome:                 # the release reads who holds the file, then removes it
+            def other():
+                try:
+                    held = lock.acquire(tmp_path, command="run", run_key="r2")
+                except lock.RunLockedError as error:
+                    outcome["state"] = error.state
+                    return
+                outcome["state"] = "taken"
+                outcome["record"] = real_read(tmp_path)
+                lock.release(held)
+
+            outcome["thread"] = thread = threading.Thread(target=other)
+            thread.start()
+            thread.join(timeout=0.5)
+        return real_read(folder)
+
+    held = lock.acquire(tmp_path, command="run", run_key="r1")
+    monkeypatch.setattr(lock, "read_holder", read_holder)
+    lock.release(held)
+    outcome["thread"].join(timeout=30)
+    assert outcome["state"] == "taken" and outcome["record"]["run_key"] == "r2"
+    assert not (tmp_path / lock.LOCK_NAME).exists() and lock._HELD == {}
+
+
+def test_a_lock_from_an_earlier_boot_is_not_the_owner_even_with_the_same_start_time(tmp_path, monkeypatch):
+    """R4-002: on Linux the start time counts clock ticks since the boot, so after a reboot a reused process number can show the same start
+    time; the lock also says which boot took it, and a lock of another boot is stale. A lock with no boot (Windows, where the start time is a
+    date, or an earlier version) keeps the comparison of the start time alone."""
+    monkeypatch.setattr(lock, "_boot_id", lambda: "this-boot", raising=False)
+    write_lock(tmp_path, boot="an-earlier-boot")
+    with pytest.raises(lock.RunLockedError) as error:
+        lock.acquire(tmp_path, command="run")
+    assert error.value.state == "stale" and (tmp_path / lock.LOCK_NAME).exists()
+    for same in ({"boot": "this-boot"}, {}):
+        write_lock(tmp_path, **same)
+        with pytest.raises(lock.RunLockedError) as error:
+            lock.acquire(tmp_path, command="run")
+        assert error.value.state == "alive", same
+    (tmp_path / lock.LOCK_NAME).unlink()
+    with lock.sole_writer(tmp_path, "run", "r1"):
+        assert lock.read_holder(tmp_path)["boot"] == "this-boot", "the record says the boot that took it"

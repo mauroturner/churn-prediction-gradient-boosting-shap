@@ -62,6 +62,17 @@ class ExportMeta:
         return dict(zip(METADATA_KEYS, (self.run_key, self.as_of.isoformat(), self.source_sha256, self.attribution), strict=True))
 
 
+def prefer_sealed(frame: pd.DataFrame) -> pd.DataFrame:
+    """The rows of an evaluation fact that a reader shows: the rows whose ``seal_state`` is ``sealed`` when there is at least one; otherwise
+    every row of `frame` as it is, whatever its state (``post_seal`` rows, or a frame with no ``seal_state`` column, come back whole and keep
+    their own label). It never turns a post-seal row into a sealed one: a caller that may publish only sealed figures checks the state
+    itself, as ``site_export`` does with the summary's ``evaluation_status``. The site export and the HTML design both use it (U22, U23)."""
+    if frame.empty or "seal_state" not in frame.columns:
+        return frame
+    sealed = frame[frame["seal_state"] == "sealed"]
+    return sealed if len(sealed) else frame
+
+
 def _replace(conn: sqlite3.Connection, name: str, columns: str, rows: list[tuple]) -> None:
     conn.execute(f"DROP TABLE IF EXISTS {name}")
     conn.execute(f"CREATE TABLE {name} ({columns})")

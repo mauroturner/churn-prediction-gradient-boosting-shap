@@ -330,3 +330,52 @@ def test_refreshing_the_exports_logs_when_the_run_metadata_cannot_be_read(copy_s
         pipeline._refresh_exports(ctx, summary=True, html=True, when="after a test")
     assert any("Z9" in r.getMessage() and "metadata" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING), caplog.records
     assert {k: v for k, v in fingerprint(folder.root).items() if not k.startswith("interim/runs/")} == {k: v for k, v in before.items() if not k.startswith("interim/runs/")}
+
+
+# --- the review advisories of U25 (R3-002, R4-002) ---------------------------------------------------------------------------------
+
+
+def test_the_run_table_s_own_transaction_works_on_the_autocommit_connection_the_close_uses(copy_state):
+    """R3-002: ``export_run_table`` opens its own ``BEGIN IMMEDIATE``; ``warehouse.connect()`` returns an autocommit connection (no implicit
+    transaction), so the rewrite commits and leaves no transaction open, and the exported set still matches its manifest."""
+    folder = copy_state("launch")
+    conn = pipeline.connect(folder.cfg.paths.warehouse)
+    try:
+        assert conn.isolation_level is None and not conn.in_transaction
+        conn.execute("UPDATE pipeline_runs SET message = 'rewritten by the test' WHERE run_key = ?", (LAUNCH,))
+        ctx = pipeline._context(folder.cfg, LAUNCH, pipeline.datetime.now(pipeline.UTC))
+        path = pipeline.export_run_table(conn, folder.cfg.paths.outputs_dir, pipeline.MODEL, pipeline._meta(ctx))
+        assert path is not None and not conn.in_transaction
+    finally:
+        conn.close()
+    assert run_table_of(folder).loc[LAUNCH, "message"] == "rewritten by the test"
+    assert pipeline.verify_star_schema(folder.cfg.paths.outputs_dir) == []
+    other = sqlite3.connect(folder.cfg.paths.warehouse)
+    try:
+        assert other.execute("SELECT message FROM star_dim_pipeline_run WHERE run_key = ?", (LAUNCH,)).fetchone() == ("rewritten by the test",), "committed"
+    finally:
+        other.close()
+
+
+def test_replay_holds_the_lock_and_each_of_its_runs_takes_it_again_in_the_same_process(copy_state, monkeypatch):
+    """R4-002: ``replay`` holds the writer lock for its loop and ``run_all`` takes it again for each run (the nested take of U24, by the same
+    thread): the run goes through every task, the file says the inner run while it works, and nothing is left behind."""
+    from churnrisk.deliveries import delivery_plan
+
+    folder = copy_state("launch")
+    plan = [s.delivery_id for s in delivery_plan(folder.cfg)]
+    seen = []
+    real_track = pipeline.track_cuts
+
+    def watched(*args, **kwargs):
+        seen.append((lock.read_holder(folder.cfg.paths.interim_dir), [len(e.records) for e in lock._HELD.values()]))
+        return real_track(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "track_cuts", watched)
+    runs = pipeline.replay(folder.cfg, until=plan[1])
+    assert len(runs) == 1 and [o["task"] for o in runs[0]] == list(TASK_IDS) and runs[0][-1]["result"]["run_status"] == "ok"
+    holder, depth = seen[0]
+    assert holder["pid"] == os.getpid() and holder["command"] == "run" and depth == [2], "replay's record and run_all's, in one entry"
+    manifest = json.loads((Path(folder.cfg.paths.raw_dir) / "deliveries" / "manifest.json").read_text(encoding="utf-8"))
+    assert [(e["delivery_id"], e["status"]) for e in manifest["entries"]] == [(plan[0], "loaded"), (plan[1], "loaded")]
+    assert lock.read_holder(folder.cfg.paths.interim_dir) is None and lock._HELD == {}

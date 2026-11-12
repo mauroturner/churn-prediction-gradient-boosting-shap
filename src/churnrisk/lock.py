@@ -50,15 +50,21 @@ RELEASE_PAUSE_S = 0.05         # between two tries: two seconds in all
 
 @dataclass
 class _Entry:
-    """A lock this process holds: its token, the thread that took it and the records it has said, the outer one first."""
+    """A lock this process holds: its token, the thread that took it and the records it has said, the outer one first. While its outer release
+    removes the file, ``releasing`` is set and another thread that asks for the lock waits for ``released`` instead of being refused."""
 
     token: str
     thread: int
     records: list[dict] = field(default_factory=list)
+    releasing: bool = False
+    released: threading.Event = field(default_factory=threading.Event)
 
 
 _HELD: dict[Path, _Entry] = {}
-_REGISTRY = threading.Lock()   # the check of ``_HELD`` and the creation of the file are one step for the threads of this process
+# The check of ``_HELD`` and the creation of the file are one step for the threads of this process. Nothing that can wait (the rewrite of a
+# nested record and the removal, which retry for up to two seconds) runs while it is held, so a lock of one folder never waits for another's
+# retries (review of U24, R4-001).
+_REGISTRY = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -187,9 +193,25 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _boot_id() -> str | None:
+    """Which boot of this host is running, where the start time of a process counts from the boot (Linux: ``/proc/sys/kernel/random/boot_id``);
+    None elsewhere (on Windows the start time is a date, so a reboot cannot repeat it)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip() or None
+    except OSError:
+        return None
+
+
 def _same_process(holder: dict) -> bool:
     """Whether the live process with the holder's id is the one that took the lock: it is, unless the lock says when its holder started and that process started at
-    another moment. A lock with no start time (an earlier version), or a system that cannot tell, keeps the answer of ``_alive``."""
+    another moment, or the lock was taken in another boot of this host (on Linux the start time counts clock ticks from the boot, so after a reboot a reused id
+    can show the same start time; review of U24, R4-002). A lock with no start time or no boot (an earlier version, Windows), or a system that cannot tell, keeps
+    the answer of ``_alive`` and of the start time."""
+    boot, current = holder.get("boot"), _boot_id()
+    if isinstance(boot, str) and current is not None and boot != current:
+        return False
     started = holder.get("started")
     if not isinstance(started, int) or isinstance(started, bool):
         return True
@@ -320,31 +342,38 @@ def acquire(folder: str | os.PathLike, *, command: str, run_key: str | None = No
     is removed by the outer release only. Another thread of this process is refused.
     """
     path = _lock_path(folder)
-    with _REGISTRY:
-        entry = _HELD.get(path)
-        if entry is not None:
-            if entry.thread != threading.get_ident():
-                raise _thread_refusal(path, entry)
-            record = {**entry.records[-1], "command": command, "run_key": run_key, "since": datetime.now(UTC).isoformat(timespec="seconds")}
-            entry.records.append(record)
-            try:
-                _rewrite(path, record)   # the run in progress, not only the outer command (review of H9, R4-replay-lock-run-key-granularity)
-            except BaseException:   # interrupted while saying it: this take did not happen, so its record must not outlive it (R4-nested-acquire-permanent-lock-leak)
-                entry.records.pop()
-                raise
-            return Holding(path, entry.token)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        token = secrets.token_hex(16)
-        record = {
-            "pid": os.getpid(), "started": _process_start(os.getpid()), "host": socket.gethostname(), "command": command, "run_key": run_key,
-            "since": datetime.now(UTC).isoformat(timespec="seconds"), "token": token,
-        }
-        if not _create(path, record):
-            holder = read_holder(path.parent)
-            if holder is not None or path.exists() or not _create(path, record):   # gone between the create and the read: its holder released it; one try more
-                raise _refusal(path, holder if holder is not None else read_holder(path.parent)) from None
-        _HELD[path] = _Entry(token, threading.get_ident(), [record])
-        return Holding(path, token)
+    while True:
+        with _REGISTRY:
+            entry = _HELD.get(path)
+            if entry is not None and entry.releasing:
+                waiting = entry.released   # its holder is removing the file right now (review of U24, R3-001): wait for it, then ask again
+            elif entry is not None:
+                if entry.thread != threading.get_ident():
+                    raise _thread_refusal(path, entry)
+                record = {**entry.records[-1], "command": command, "run_key": run_key, "since": datetime.now(UTC).isoformat(timespec="seconds")}
+                entry.records.append(record)
+                break
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                token = secrets.token_hex(16)
+                record = {
+                    "pid": os.getpid(), "started": _process_start(os.getpid()), "boot": _boot_id(), "host": socket.gethostname(), "command": command,
+                    "run_key": run_key, "since": datetime.now(UTC).isoformat(timespec="seconds"), "token": token,
+                }
+                if not _create(path, record):
+                    holder = read_holder(path.parent)
+                    if holder is not None or path.exists() or not _create(path, record):   # gone between the create and the read: its holder released it; one try more
+                        raise _refusal(path, holder if holder is not None else read_holder(path.parent)) from None
+                _HELD[path] = _Entry(token, threading.get_ident(), [record])
+                return Holding(path, token)
+        waiting.wait()
+    try:   # the nested take says its record outside the registry: its retries never hold up another folder (review of U24, R4-001)
+        _rewrite(path, record)   # the run in progress, not only the outer command (review of H9, R4-replay-lock-run-key-granularity)
+    except BaseException:   # interrupted while saying it: this take did not happen, so its record must not outlive it (R4-nested-acquire-permanent-lock-leak)
+        with _REGISTRY:
+            entry.records.pop()
+        raise
+    return Holding(path, entry.token)
 
 
 def release(held: Holding) -> None:
@@ -352,19 +381,27 @@ def release(held: Holding) -> None:
     another's). It never raises an ``OSError``: a file it cannot remove or rewrite is logged as a warning, and one it cannot remove is left for a person (runbook R9)."""
     with _REGISTRY:
         entry = _HELD.get(held.path)
-        if entry is None or entry.token != held.token:
+        if entry is None or entry.token != held.token or entry.releasing:
             logger.warning("lock %s is not held by this process: nothing to release", held.path)
             return
         entry.records.pop()
-        if entry.records:
-            _rewrite(held.path, entry.records[-1])
-            return
-        del _HELD[held.path]
-    holder = read_holder(held.path.parent)
-    if holder is None or holder.get("token") != held.token:
-        logger.warning("lock %s is not this process's any more (removed or taken by another process): left as it is", held.path)
+        outer = entry.records[-1] if entry.records else None
+        if outer is None:
+            entry.releasing = True   # the entry stays until the file is gone, so another thread waits instead of seeing a live holder (R3-001)
+    if outer is not None:
+        _rewrite(held.path, outer)   # outside the registry, like the nested take's (R4-001)
         return
-    _retrying(lambda: held.path.unlink(missing_ok=True), "remove", held.path)
+    try:
+        holder = read_holder(held.path.parent)
+        if holder is None or holder.get("token") != held.token:
+            logger.warning("lock %s is not this process's any more (removed or taken by another process): left as it is", held.path)
+            return
+        _retrying(lambda: held.path.unlink(missing_ok=True), "remove", held.path)
+    finally:
+        with _REGISTRY:
+            if _HELD.get(held.path) is entry:
+                del _HELD[held.path]
+        entry.released.set()
 
 
 @contextmanager

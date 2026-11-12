@@ -36,7 +36,7 @@ import pandas as pd
 
 from churnrisk.config import PipelineConfig
 from churnrisk.dashboard.semantic_model import FEATURES_ES, METHODS_ES
-from churnrisk.export import ExportMeta
+from churnrisk.export import ExportMeta, prefer_sealed
 from churnrisk.files import write_atomic
 from churnrisk.reporting import build_summary
 from churnrisk.sensitivity import VARIANTS_ES
@@ -52,7 +52,13 @@ STATUS_EN = {"pasa": "pass", "falla": "fail", "advierte": "warn"}
 WORST_STATUS_FIRST = ("falla", "advierte", "pasa")
 EXAMPLE_LABELS = ("Cliente A", "Cliente B", "Cliente C", "Cliente D", "Cliente E")
 BAND_ES = {"rec_days": "recencia", "freq_365": "frecuencia", "mon_365": "gasto"}
-REQUIRED_STAR = ("star_dim_cut", "star_dim_model", "star_fact_method_metrics", "star_fact_cut_country", "star_fact_tracking")
+# Every table of the star model the export reads: the one list ``_require_star`` checks before anything is built (a test compares it with
+# the tables the queries of this module name).
+REQUIRED_STAR = (
+    "star_dim_country", "star_dim_cut", "star_dim_model", "star_fact_calibration", "star_fact_cost_sensitivity", "star_fact_cut_country",
+    "star_fact_gain_curve", "star_fact_importance", "star_fact_label_definition", "star_fact_leakage", "star_fact_method_metrics",
+    "star_fact_reason_summary", "star_fact_selection", "star_fact_sensitivity", "star_fact_silence_return", "star_fact_tracking",
+)
 
 
 class SiteExportError(RuntimeError):
@@ -115,15 +121,29 @@ def _header(meta: ExportMeta) -> dict[str, Any]:
             "attribution": meta.attribution}
 
 
-def _sealed_rows(frame: pd.DataFrame) -> pd.DataFrame:
-    """The sealed rows of an evaluation fact if it has any, otherwise its post-seal rows (labelled by their ``seal_state``)."""
-    if frame.empty or "seal_state" not in frame.columns:
-        return frame
-    sealed = frame[frame["seal_state"] == "sealed"]
-    return sealed if len(sealed) else frame
-
-
 # --- summary.json -------------------------------------------------------------------------------------------------------------------
+
+
+def _loaded_rule_rows(conn: sqlite3.Connection) -> pd.DataFrame:
+    """The rule results of the runs whose delivery is loaded, with each run's calculation date."""
+    return _query(conn, "SELECT v.rule_id, v.passed, v.severity, v.rows_affected, v.customers_affected, v.value_gbp, d.as_of_date FROM validation_results AS v "
+                        "JOIN deliveries AS d ON d.run_key = v.run_key AND d.status = 'loaded' ORDER BY d.as_of_date, v.rule_id")
+
+
+def _aggregated(rows: pd.DataFrame, rule_id: str) -> pd.DataFrame:
+    """The rows of `rule_id` that its ``aggregation`` counts (plan, section 6): ``source`` and ``latest`` read once, from the latest loaded run
+    (a cumulative count summed over runs would count the earlier months again; project 03, D94), ``per_run`` every loaded run."""
+    mine = rows[rows["rule_id"] == rule_id]
+    if RULES[rule_id].aggregation in (Aggregation.SOURCE, Aggregation.LATEST) and len(mine):
+        mine = mine[mine["as_of_date"] == mine["as_of_date"].max()]
+    return mine
+
+
+def _overlap_removed(rows: pd.DataFrame) -> int | None:
+    """The overlap copies that rule I03 recorded, aggregated as I03 says; None if no loaded run recorded it. ``summary.json`` and
+    ``validation_rules.json`` both publish ``lines_raw`` from this one figure."""
+    mine = _aggregated(rows, "I03")
+    return None if mine.empty else int(mine["rows_affected"].sum())
 
 
 def _headline_counts(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -134,10 +154,9 @@ def _headline_counts(conn: sqlite3.Connection) -> dict[str, Any]:
         "SELECT COALESCE(SUM(CASE WHEN quantity * price > 0 THEN quantity * price END), 0), COALESCE(SUM(customer_id IS NULL), 0), "
         "COALESCE(SUM(CASE WHEN customer_id IS NULL AND quantity * price > 0 THEN quantity * price END), 0), "
         "COALESCE(SUM(CASE WHEN customer_id IS NOT NULL AND invoice LIKE 'C%' THEN -quantity * price END), 0) FROM raw_lines").fetchone()
-    overlap = conn.execute("SELECT v.rows_affected FROM validation_results AS v JOIN deliveries AS d ON d.run_key = v.run_key AND d.status = 'loaded' "
-                           "WHERE v.rule_id = 'I03' ORDER BY d.as_of_date DESC LIMIT 1").fetchone()
+    overlap = _overlap_removed(_loaded_rule_rows(conn))
     return {
-        "lines_raw": None if overlap is None else int(base) + int(overlap[0]), "lines_base": int(base), "customers_with_purchase": int(customers),
+        "lines_raw": None if overlap is None else int(base) + overlap, "lines_base": int(base), "customers_with_purchase": int(customers),
         "countries_with_customers": int(countries), "guest_lines_share": _num(guest_lines / base, 3) if base else None,
         "guest_value_share": _num(guest_positive / positive, 3) if positive else None, "cancelled_value_share": _num(cancelled / positive, 3) if positive else None,
         "period_start": start, "period_end": end,
@@ -191,13 +210,10 @@ def _validation(conn: sqlite3.Connection) -> dict[str, Any]:
     """The rules in the order of the report, each aggregated over the loaded runs as its ``aggregation`` says (plan, section 6): ``source`` and
     ``latest`` read once, from the latest loaded run (a cumulative count summed over runs would count the earlier months again; project 03,
     D94), ``per_run`` summed over the loaded runs. A rule no loaded run recorded is ``not_evaluated``."""
-    rows = _query(conn, "SELECT v.rule_id, v.passed, v.severity, v.rows_affected, v.customers_affected, v.value_gbp, d.as_of_date FROM validation_results AS v "
-                        "JOIN deliveries AS d ON d.run_key = v.run_key AND d.status = 'loaded' ORDER BY d.as_of_date, v.rule_id")
+    rows = _loaded_rule_rows(conn)
     rules = []
     for rule_id, rule in RULES.items():
-        mine = rows[rows["rule_id"] == rule_id]
-        if rule.aggregation in (Aggregation.SOURCE, Aggregation.LATEST) and len(mine):
-            mine = mine[mine["as_of_date"] == mine["as_of_date"].max()]
+        mine = _aggregated(rows, rule_id)
         status_es = ["pasa" if bool(p) else ("falla" if s == "blocking" else "advierte") for p, s in zip(mine["passed"], mine["severity"], strict=True)]
         status = "not_evaluated" if mine.empty else STATUS_EN[next(s for s in WORST_STATUS_FIRST if s in status_es)]
         rules.append({"rule_id": rule_id, "name_es": rule.name_es, "severity": rule.severity.value, "scope": rule.scope, "aggregation": rule.aggregation.value,
@@ -206,7 +222,7 @@ def _validation(conn: sqlite3.Connection) -> dict[str, Any]:
     by_id = {r["rule_id"]: r for r in rules}
     base = int(conn.execute("SELECT COUNT(*) FROM raw_lines").fetchone()[0])
     loaded, rejected = conn.execute("SELECT COALESCE(SUM(status = 'loaded'), 0), COALESCE(SUM(status = 'rejected'), 0) FROM deliveries").fetchone()
-    overlap = by_id["I03"]["rows"] if by_id["I03"]["status"] != "not_evaluated" else None
+    overlap = _overlap_removed(rows)
     totals = {"lines_raw": None if overlap is None else base + overlap, "lines_base": base, "overlap_removed": overlap, "guest_lines": by_id["V20"]["rows"],
               "cancellation_lines": by_id["V21"]["rows"], "deliveries_loaded": int(loaded), "deliveries_rejected": int(rejected)}
     return {"rules": rules, "totals": totals}
@@ -244,7 +260,7 @@ def _label(conn: sqlite3.Connection, cfg: PipelineConfig, headline: dict[str, An
 
 
 def _metrics_of(conn: sqlite3.Connection, scope: str, sealed: bool) -> pd.DataFrame:
-    frame = _sealed_rows(_query(conn, "SELECT * FROM star_fact_method_metrics WHERE scope = ?", (scope,)))
+    frame = prefer_sealed(_query(conn, "SELECT * FROM star_fact_method_metrics WHERE scope = ?", (scope,)))
     return frame if scope != "test" or sealed else frame.iloc[0:0]
 
 
@@ -300,7 +316,7 @@ def _examples(conn: sqlite3.Connection, cfg: PipelineConfig, sealed: bool) -> li
 def _calibration(conn: sqlite3.Connection, cfg: PipelineConfig, sealed: bool) -> list[dict[str, Any]]:
     if not sealed:
         return []
-    frame = _sealed_rows(_query(conn, "SELECT * FROM star_fact_calibration WHERE scope = 'test' AND method_key = 'model' ORDER BY point"))
+    frame = prefer_sealed(_query(conn, "SELECT * FROM star_fact_calibration WHERE scope = 'test' AND method_key = 'model' ORDER BY point"))
     cells = [{"bin": int(r.point), "p_mean": _num(r.p_mean, 3), "observed": _num(r.observed, 3), "rows": _int(r.rows)} for r in frame.itertuples()]
     return protect(cells, [c["rows"] for c in cells], ("bin",), cfg.site.min_cell_customers)
 
@@ -328,19 +344,19 @@ def _algorithms(conn: sqlite3.Connection, cfg: PipelineConfig, sealed: bool, sea
                             "lift_20": _num(r.lift_20, 3), "net_benefit_per_1000": _num(r.nb_per_1000, 1)})
     gain = []
     if sealed:
-        curves = _sealed_rows(_query(conn, "SELECT * FROM star_fact_gain_curve WHERE scope = 'test' ORDER BY method_key, point"))
+        curves = prefer_sealed(_query(conn, "SELECT * FROM star_fact_gain_curve WHERE scope = 'test' ORDER BY method_key, point"))
         for method in dict.fromkeys(("model", "b2_rfm", b_star)):
             for r in curves[curves["method_key"] == method].head(cfg.evaluation.gain_points).itertuples():
                 gain.append({"method": method, "share_contacted": _num(r.share_contacted, 3), "share_captured": _num(r.share_captured, 3)})
-    costs = _sealed_rows(_query(conn, "SELECT * FROM star_fact_cost_sensitivity WHERE scope = 'valid_v2' ORDER BY break_even"))
+    costs = prefer_sealed(_query(conn, "SELECT * FROM star_fact_cost_sensitivity WHERE scope = 'valid_v2' ORDER BY break_even"))
     cost_curve = []
     for be in sorted(set(costs["break_even"])):
         at = costs[costs["break_even"] == be].set_index("method_key")
         cost_curve.append({"break_even": _num(be, 2), "threshold_model": _num(at["threshold"].get("model"), 2), "nb_model": _num(at["nb_per_1000"].get("model"), 1),
                            "nb_b_star": _num(at["nb_per_1000"].get(b_star), 1), "contact_share_model": _num(at["contact_share"].get("model"), 3)})
     importance_scope = "test" if sealed else "valid_v2"
-    importance = _sealed_rows(_query(conn, "SELECT * FROM star_fact_importance WHERE scope = ? ORDER BY mean_abs_shap DESC, reason_key", (importance_scope,))).head(10)
-    variants = _sealed_rows(_query(conn, "SELECT * FROM star_fact_sensitivity")) if sealed else pd.DataFrame(columns=["variant"])
+    importance = prefer_sealed(_query(conn, "SELECT * FROM star_fact_importance WHERE scope = ? ORDER BY mean_abs_shap DESC, reason_key", (importance_scope,))).head(10)
+    variants = prefer_sealed(_query(conn, "SELECT * FROM star_fact_sensitivity")) if sealed else pd.DataFrame(columns=["variant"])
     out_variants = []
     for variant in [v for v in VARIANTS_ES if v in set(variants["variant"])]:
         at = variants[variants["variant"] == variant].set_index("method_key")
@@ -386,9 +402,10 @@ def _retention(conn: sqlite3.Connection, cfg: PipelineConfig) -> dict[str, Any]:
             by_as_of.append({"as_of": _day(r.as_of_key), "window_closed": bool(r.window_closed), "returned": returned, "churned": churned,
                              "contacted_churned": contacted_churned, "contacted_returned": contacted_returned, "expected_churners": _num(r.expected_churners, 1)})
         scored, contacted_n = int(first["scored"]), int(first["contacted"])
-        cuts.append({"cut": _day(cut_key), "block": str(blocks.get(cut_key)), "is_censored": bool(first["is_censored"]), "scored": scored,
-                     "contacted": None if _hidden(contacted_n, minimum) else contacted_n, "contact_share": None if _hidden(contacted_n, minimum) else _num(contacted_n / scored, 3),
-                     "by_as_of": by_as_of})
+        small = _hidden(scored, minimum) or _hidden(contacted_n, minimum)      # the scored are a count of customers, like label.json's customers
+        cuts.append({"cut": _day(cut_key), "block": str(blocks.get(cut_key)), "is_censored": bool(first["is_censored"]),
+                     "scored": None if _hidden(scored, minimum) else scored, "contacted": None if small else contacted_n,
+                     "contact_share": None if small else _num(contacted_n / scored, 3), "by_as_of": by_as_of})
     country = _query(conn, "SELECT c.cut_key, d.country_es, c.customers, c.contacted, c.churned, c.suppressed FROM star_fact_cut_country AS c "
                            "JOIN star_dim_country AS d ON d.country_key = c.country_key ORDER BY c.cut_key, d.country_key")
     closed = [k for k in sorted(set(country["cut_key"])) if country.loc[country["cut_key"] == k, "churned"].notna().any()]
