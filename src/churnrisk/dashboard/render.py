@@ -25,6 +25,7 @@ from churnrisk.dashboard.semantic_model import (
     FEATURES_ES,
     PAGE_COLUMNS,
     PAGE_ROWS,
+    REASONS_TITLE,
     Page,
     SemanticModel,
     Visual,
@@ -349,7 +350,7 @@ def _preview(data: _Data, v: Visual) -> str:
     names = data.t["dim_reason"].set_index("reason_key")["feature_es"] if len(data.t["dim_reason"]) else {}
     makers = {
         "Clientes por riesgo, con sus tres motivos": lambda: _list(data),
-        "Motivos entre los contactados": lambda: _reasons(data, v),
+        REASONS_TITLE: lambda: _reasons(data, v),
         "Curva de ganancia en la prueba": lambda: _curve(data, v, "fact_gain_curve", "share_contacted", "share_captured"),
         "Curva de costo: beneficio por 1.000 clientes según el punto de equilibrio": lambda: _cost_curve(data, v),
         "Seguimiento de cada corte por fecha de cálculo": lambda: _tracking(data),
@@ -380,7 +381,8 @@ def _steps(model: SemanticModel) -> str:
         "con la de <code>outputs\\private</code> (no se versiona: tiene el número de cliente).",
         f"Cree una consulta por tabla ({len(model.tables)}) con el código de la sección «Power Query»; deje el nombre de la consulta igual al de la tabla.",
         f"En la vista de modelo, cree las {len(model.relationships)} relaciones de la tabla «Relaciones»: uno a varios (1:*), filtro único de la dimensión al "
-        "hecho, todas activas. <code>dim_as_of</code>, <code>dim_model</code> y los hechos de la evaluación no tienen relaciones.",
+        "hecho, todas activas. <code>dim_model</code> y los hechos de la evaluación no tienen relaciones; <code>dim_as_of</code> filtra "
+        "<code>fact_tracking</code> por la fecha de cálculo (R19), y el segmentador «Fecha de cálculo» de la página 3 usa su <code>as_of_label</code>.",
         "Marque <code>dim_date</code> como tabla de fechas con la columna <code>date</code>; ordene <code>month_name_es</code> por <code>month</code> y "
         "<code>as_of_label</code> por <code>as_of_key</code>.",
         f"Cree los {len(model.parameters)} parámetros de hipótesis de la sección «Parámetros de los costos» con «Modelado → Nuevo parámetro → Rango numérico»: "
@@ -511,7 +513,7 @@ def _page_html(model: SemanticModel, data: _Data, meta: ExportMeta) -> str:
 <div class="warn"><b>Los costos son supuestos.</b> El umbral de contacto se eligió en V2 con un costo de la oferta, una tasa de rescate y un valor del cliente retenido declarados; los datos no traen ninguno. El panel de la página 2 deja moverlos y rotula cada uno «supuesto».</div>
 <div class="warn"><b>Ningún número de cliente.</b> La lista de la página 1 lee <code>outputs/private</code>, que no se versiona; aquí su columna de cliente aparece enmascarada («{MASK * 5}») y ningún número de cliente llega a este documento.</div>
 <h2 id="modelo">{escape(SECTIONS[1][1])}</h2>
-<p>{dims} dimensiones y {facts} hechos. <code>dim_as_of</code> es una tabla de parámetro de las fechas de cálculo. <code>dim_model</code> y los hechos de la evaluación no tienen relaciones de clave. <code>fact_customer_cut</code> es el único hecho por cliente y se lee de la carpeta privada.</p>
+<p>{dims} dimensiones y {facts} hechos. <code>dim_as_of</code> tiene las fechas de cálculo del seguimiento y filtra <code>fact_tracking</code>. <code>dim_model</code> y los hechos de la evaluación no tienen relaciones de clave. <code>fact_customer_cut</code> es el único hecho por cliente y se lee de la carpeta privada.</p>
 {_diagram(model)}
 <h2 id="relaciones">{escape(SECTIONS[2][1])}</h2>
 <div class="scroll">{_relationships(model)}</div>

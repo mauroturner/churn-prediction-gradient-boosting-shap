@@ -34,11 +34,11 @@ def read(star_export, name: str):
 
 
 def test_every_relationship_is_one_to_many_single_and_keys_exist(star_export):
-    """AC27: for each of the 18 relationships the dimension's key is unique and never empty, every key of the fact is in the dimension, and the
+    """AC27: for each of the 19 relationships the dimension's key is unique and never empty, every key of the fact is in the dimension, and the
     relationship is one to many, single direction and active; every table's key is unique; each file has the schema of the specification and the
     run, the date, the source and the attribution as metadata."""
     _cfg, _out, _private, paths, meta, _w = star_export
-    assert len(MODEL.relationships) == 18 and [r.rel_id for r in MODEL.relationships] == [f"R{i:02d}" for i in range(1, 19)]
+    assert len(MODEL.relationships) == 19 and [r.rel_id for r in MODEL.relationships] == [f"R{i:02d}" for i in range(1, 20)]
     for r in MODEL.relationships:
         assert (r.cardinality, r.cross_filter, r.active) == ("one_to_many", "single", True), r.rel_id
         keys = read(star_export, r.dim_table).column(r.dim_column).to_pylist()
@@ -242,8 +242,9 @@ def checks_db(star_export, tmp_path_factory):
 
 @pytest.mark.parametrize("relationship", MODEL.relationships, ids=lambda r: r.rel_id)
 def test_every_foreign_key_check_catches_one_orphan_of_its_relationship(checks_db, relationship):
-    """R3-coverage-fk-checks: one row of the fact whose key is not in its dimension makes that relationship's control fail, and only it among
-    the foreign keys."""
+    """R3-coverage-fk-checks: one row of the fact whose key is not in its dimension makes that relationship's control fail, and among the
+    foreign keys only it and the controls of the other relationships on the same column of the fact (R17 and R19 both filter
+    ``fact_tracking[as_of_key]``, D90)."""
     conn, params = checks_db
     assert {k: v for k, v in violations(conn, params).items() if v} == {}
     dtype = next(c.dtype for c in MODEL.table(relationship.fact_table).columns if c.name == relationship.fact_column)
@@ -260,7 +261,8 @@ def test_every_foreign_key_check_catches_one_orphan_of_its_relationship(checks_d
         failing = {k for k, v in violations(conn, params).items() if v and k.startswith("chk_fk_")}
     finally:
         conn.execute("ROLLBACK")
-    assert failing == {f"chk_fk_{relationship.rel_id.lower()}_{relationship.fact_table}_{relationship.dim_table}"}
+    same_column = [r for r in MODEL.relationships if (r.fact_table, r.fact_column) == (relationship.fact_table, relationship.fact_column)]
+    assert failing == {f"chk_fk_{r.rel_id.lower()}_{r.fact_table}_{r.dim_table}" for r in same_column}
 
 
 def test_the_key_check_catches_a_repeated_key_in_every_table_that_has_rows(checks_db):

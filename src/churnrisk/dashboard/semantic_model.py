@@ -7,8 +7,8 @@ in English; descriptions and labels in Spanish (D36). The measures (DAX), the th
 the report (a 12 x 9 grid of visuals) live here too (U21, plan section 20, D71); ``validate_model`` checks that every DAX reference and every
 field of a visual is a column, a parameter or a measure of the model.
 
-Dimensions have a unique key; facts have a grain (``Table.key``). ``dim_as_of``, ``dim_model`` and the facts of the evaluation have no key
-relationship: they feed their own visuals. The customer-level fact (``fact_customer_cut``) carries the customer number and is written to
+Dimensions have a unique key; facts have a grain (``Table.key``). ``dim_model`` and the facts of the evaluation have no key relationship:
+they feed their own visuals. ``dim_as_of`` lists the calculation dates and filters ``fact_tracking`` (R19, D90). The customer-level fact (``fact_customer_cut``) carries the customer number and is written to
 ``outputs/private/`` only, never to the versioned folder (D26). ``FEATURES_ES`` names each feature in Spanish: the reasons store the feature's
 identifier and the report and the site translate it from here (D60).
 """
@@ -205,7 +205,7 @@ DIM_PIPELINE_RUN = Table("dim_pipeline_run", "dimension", ("run_key",), (
 ), "Las corridas del flujo.")
 DIM_AS_OF = Table("dim_as_of", "dimension", ("as_of_key",), (
     _c("as_of_key", "int32", "Fecha de cálculo, como AAAAMMDD."), _c("as_of_date", "date", "Fecha de cálculo."), _c("as_of_label", "string", "Fecha de cálculo, en texto."),
-), "Tabla de parámetro de las fechas de cálculo, sin relaciones.")
+), "Las fechas de cálculo del seguimiento: filtra fact_tracking por su fecha de cálculo (R19).")
 
 FACT_CUT_BAND = Table("fact_cut_band", "fact", ("cut_key", "band_key"), (
     CUT_KEY, _c("band_key", "int32", "Banda de riesgo."), _c("customers", "int64", "Clientes puntuados.", "clientes"),
@@ -314,6 +314,7 @@ _PAIRS = (
     *(("dim_method", "method_key", fact, "method_key") for fact in ("fact_method_metrics", "fact_gain_curve", "fact_roc", "fact_calibration", "fact_cost_sensitivity")),
     ("dim_date", "date_key", "fact_tracking", "as_of_key"),
     ("dim_pipeline_run", "run_key", "fact_validation", "run_key"),
+    ("dim_as_of", "as_of_key", "fact_tracking", "as_of_key"),      # R19: the slicer of page 3 lists only the calculation dates (D90)
 )
 RELATIONSHIPS: tuple[Relationship, ...] = tuple(Relationship(f"R{i:02d}", *pair) for i, pair in enumerate(_PAIRS, start=1))
 
@@ -392,6 +393,7 @@ _TRACKING = ("fact_tracking[as_of_key]", "dim_cut[cut_date]", "fact_tracking[sco
              "fact_tracking[churned]", "fact_tracking[expected_churners]", "fact_tracking[is_censored]")
 _CRITERIA = ("fact_evaluation_summary[criterion_id]", "fact_evaluation_summary[name_es]", "fact_evaluation_summary[value]", "fact_evaluation_summary[threshold_es]",
              "fact_evaluation_summary[seen_by_research]", "fact_evaluation_summary[seen_by_planner]", "fact_evaluation_summary[verdict_es]")
+REASONS_TITLE = "Motivos entre los contactados (todo el corte: no lo filtran el país ni la banda)"
 PAGES: tuple[Page, ...] = (
     Page("Clientes en riesgo y sus motivos", (
         Visual("slicer", "Corte", ("dim_cut[cut_date]",), 0, 0, 4, 1),
@@ -402,7 +404,8 @@ PAGES: tuple[Page, ...] = (
         Visual("card", "Riesgo medio", ("[Riesgo medio]",), 6, 1, 3, 1),
         Visual("card", "Bajas esperadas", ("[Bajas esperadas]",), 9, 1, 3, 1),
         Visual("table", "Clientes por riesgo, con sus tres motivos", _LIST, 0, 2, 8, 7),
-        Visual("barChart", "Motivos entre los contactados", ("dim_reason[feature_es]", "fact_reason_summary[contacted_top3]"), 8, 2, 4, 7),
+        # by cut only: fact_reason_summary relates to dim_cut and dim_reason, so the title says the country and the band do not filter it (D90)
+        Visual("barChart", REASONS_TITLE, ("dim_reason[feature_es]", "fact_reason_summary[contacted_top3]"), 8, 2, 4, 7),
     )),
     Page("Ganancia y costos", (
         Visual("slicer", f"{OFFER} (supuesto)", (f"'{OFFER}'[{OFFER}]",), 0, 0, 4, 1),
@@ -416,7 +419,7 @@ PAGES: tuple[Page, ...] = (
                ("fact_cost_sensitivity[break_even]", "fact_cost_sensitivity[nb_per_1000]", "dim_method[method_es]"), 6, 2, 6, 7),
     )),
     Page("Seguimiento", (
-        Visual("slicer", "Fecha de cálculo", ("dim_date[date]",), 0, 0, 4, 1),
+        Visual("slicer", "Fecha de cálculo", ("dim_as_of[as_of_label]",), 0, 0, 4, 1),
         Visual("slicer", "Corte", ("dim_cut[cut_date]",), 4, 0, 4, 1),
         Visual("card", "Volvieron (seguimiento)", ("[Volvieron (seguimiento)]",), 8, 0, 4, 1),
         Visual("table", "Seguimiento de cada corte por fecha de cálculo", _TRACKING, 0, 1, 12, 5),

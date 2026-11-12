@@ -192,7 +192,8 @@ def test_each_page_has_the_visuals_of_the_plan():
     assert [v.fields[0] for v in PAGES[0].visuals if v.kind == "card"] == ["[Clientes puntuados]", "[Contactos (umbral sellado)]", "[Riesgo medio]", "[Bajas esperadas]"]
     table = visual(first, "Clientes por riesgo, con sus tres motivos")
     assert table.kind == "table" and table.fields[0] == "fact_customer_cut[customer_id]" and "fact_customer_cut[risk]" in table.fields
-    assert visual(first, "Motivos entre los contactados").fields == ("dim_reason[feature_es]", "fact_reason_summary[contacted_top3]")
+    assert visual(first, "Motivos entre los contactados (todo el corte: no lo filtran el país ni la banda)").fields == (
+        "dim_reason[feature_es]", "fact_reason_summary[contacted_top3]")
     costs = "Ganancia y costos"
     assert [v.fields[0] for v in PAGES[1].visuals if v.kind == "slicer"] == [f"'{OFFER}'[{OFFER}]", f"'{RATE}'[{RATE}]", f"'{VALUE}'[{VALUE}]"]
     assert all("supuesto" in v.title_es for v in PAGES[1].visuals if v.kind == "slicer")
@@ -208,13 +209,14 @@ def test_each_page_has_the_visuals_of_the_plan():
 
 
 def _tables_of(visual: Visual) -> set[str]:
-    """The tables a visual reads: its columns' and, through the DAX of its measures (and the measures they name), the measures' columns'."""
+    """The tables a visual reads: its columns' and, through the DAX of its measures (and the measures they name), the tables the measures name,
+    by a column (``fact_tracking[returned]``) or whole (``COUNTROWS ( fact_customer_cut )``)."""
     tables, pending = set(), list(visual.fields)
     while pending:
         field = pending.pop()
         if field.startswith("["):
             dax = MODEL.measure(field[1:-1]).dax
-            tables |= {t for t, _ in dax_column_refs(dax)}
+            tables |= {t for t, _ in dax_column_refs(dax)} | {t.name for t in MODEL.tables if re.search(rf"\b{t.name}\b", dax)}
             pending += [f"[{m}]" for m in dax_measure_refs(dax)]
         elif not field.startswith("'"):
             tables.add(field.split("[")[0])
@@ -226,13 +228,54 @@ def _filtered_by(table: str) -> set[str]:
     return {table} | {r.fact_table for r in MODEL.relationships if r.dim_table == table}
 
 
+NOT_FILTERED = re.compile(r"no lo filtran (.+?)\)?$")
+
+
+def _says_it_is_not_filtered_by(v: Visual, slicer: Visual) -> bool:
+    """Whether the title of `v` says that `slicer` does not filter it («… no lo filtran el país ni la banda»), by the slicer's first word."""
+    found = NOT_FILTERED.search(v.title_es)
+    return found is not None and slicer.title_es.split()[0].lower() in found.group(1).lower()
+
+
 def test_every_slicer_filters_a_visual_of_its_page_through_a_relationship():
-    """R3-dim-as-of-dead-slicer: a slicer on a table with no path to the page's tables selects without filtering anything (silently). The what-if
-    parameters are slicers of their own tables, read by the measures (D71), and are not part of this check."""
+    """R3-dim-as-of-dead-slicer, made strict (U29-2c-sucesora/R3-generic-slicer-test-weak-any, A10 of the independent evaluation; D90): a slicer
+    on a table with no path to a visual of its page selects without filtering it, in silence. Every slicer filters every visual of its page
+    through the model's relationships, or the visual's title says that slicer does not filter it, and a title says so only when it is true.
+    The what-if parameters are slicers of their own tables, read by the measures (D71), and are not part of this check."""
     for page in PAGES:
         for slicer in (v for v in page.visuals if v.kind == "slicer" and not v.fields[0].startswith("'")):
             reached = _filtered_by(slicer.fields[0].split("[")[0])
-            assert any(reached & _tables_of(v) for v in page.visuals if v.kind != "slicer"), (page.name_es, slicer.title_es, slicer.fields[0])
+            for v in (v for v in page.visuals if v.kind != "slicer"):
+                filtered = bool(reached & _tables_of(v))
+                assert filtered != _says_it_is_not_filtered_by(v, slicer), (page.name_es, slicer.title_es, v.title_es, filtered)
+
+
+def test_the_reasons_chart_of_the_first_page_says_the_country_and_the_band_do_not_filter_it():
+    """A10: the reasons are summarised by cut (``fact_reason_summary``, related to ``dim_cut`` and ``dim_reason`` only), so the country and band
+    slicers of page 1 cannot reach the chart; its title says so, the way the design states any other scope (D90)."""
+    page = PAGES[0]
+    [chart] = [v for v in page.visuals if v.fields == ("dim_reason[feature_es]", "fact_reason_summary[contacted_top3]")]
+    assert chart.title_es == "Motivos entre los contactados (todo el corte: no lo filtran el país ni la banda)"
+    slicers = {v.title_es: v for v in page.visuals if v.kind == "slicer"}
+    assert [t for t, s in slicers.items() if _says_it_is_not_filtered_by(chart, s)] == ["País", "Banda de riesgo"]
+
+
+def test_the_calculation_date_slicer_lists_only_the_calculation_dates_and_filters_the_tracking(star_files):
+    """A10: page 3's «Fecha de cálculo» is bound to ``dim_as_of[as_of_label]``, which R19 relates to ``fact_tracking[as_of_key]`` (one to many,
+    single direction, active), so it lists the calculation dates of the tracking and nothing else, not the days of the calendar."""
+    import pyarrow.parquet as pq
+
+    [slicer] = [v for v in next(p for p in PAGES if p.name_es == "Seguimiento").visuals if v.title_es == "Fecha de cálculo"]
+    assert slicer.fields == ("dim_as_of[as_of_label]",)
+    [r19] = [r for r in MODEL.relationships if (r.dim_table, r.fact_table) == ("dim_as_of", "fact_tracking")]
+    assert (r19.rel_id, r19.dim_column, r19.fact_column, r19.cardinality, r19.cross_filter, r19.active) == (
+        "R19", "as_of_key", "as_of_key", "one_to_many", "single", True)
+    _cfg, out_dir, _private, _paths, _meta, _w = star_files
+    listed = pq.read_table(out_dir / "dim_as_of.parquet").to_pandas()
+    tracked = pq.read_table(out_dir / "fact_tracking.parquet").to_pandas()
+    assert sorted(listed["as_of_key"]) == sorted(tracked["as_of_key"].unique()) and len(listed) == 6
+    assert len(pq.read_table(out_dir / "dim_date.parquet")) > len(listed), "the calendar has every day; the slicer only the calculation dates"
+    assert list(listed["as_of_label"]) == [d.isoformat() for d in listed["as_of_date"]]
 
 
 def test_the_slicers_of_the_tracking_page_filter_every_one_of_its_visuals():

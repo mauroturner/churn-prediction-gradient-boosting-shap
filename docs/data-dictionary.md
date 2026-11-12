@@ -65,7 +65,7 @@ No se versionan y nunca salen de la máquina que corre el flujo:
 
 ## Tablas exportadas
 
-Las 27 tablas del modelo semántico: 9 dimensiones y 18 hechos, de los que 26 se escriben en `outputs/powerbi/` con un manifiesto de huellas, y el hecho por cliente y corte en `outputs/private/`, que no se versiona. Las relaciones (18, todas de uno a varios, en un solo sentido) y las medidas DAX están en el diseño del tablero, `dashboard/powerbi-design.html`.
+Las 27 tablas del modelo semántico: 9 dimensiones y 18 hechos, de los que 26 se escriben en `outputs/powerbi/` con un manifiesto de huellas, y el hecho por cliente y corte en `outputs/private/`, que no se versiona. Las relaciones (19, todas de uno a varios, en un solo sentido; `dim_as_of` filtra `fact_tracking` por la fecha de cálculo desde D90) y las medidas DAX están en el diseño del tablero, `dashboard/powerbi-design.html`.
 
 <!-- columns:start -->
 ### `dim_date`
@@ -180,7 +180,7 @@ Dimensión. Las corridas del flujo. Se versiona en `outputs/powerbi/dim_pipeline
 
 ### `dim_as_of`
 
-Dimensión. Tabla de parámetro de las fechas de cálculo, sin relaciones. Se versiona en `outputs/powerbi/dim_as_of.parquet`. Clave: `as_of_key`.
+Dimensión. Las fechas de cálculo del seguimiento: filtra fact_tracking por su fecha de cálculo (R19). Se versiona en `outputs/powerbi/dim_as_of.parquet`. Clave: `as_of_key`.
 
 | Columna | Tipo | Unidad | Significado |
 | --- | --- | --- | --- |
