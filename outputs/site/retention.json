@@ -1,0 +1,377 @@
+{
+ "as_of": "2011-12-09",
+ "attribution": "Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D (CC BY 4.0)",
+ "by_country": [
+  {
+   "churn_rate_observed": null,
+   "contacted": null,
+   "country_es": "Australia",
+   "customers": null,
+   "suppressed": true
+  },
+  {
+   "churn_rate_observed": 0.188,
+   "contacted": 2,
+   "country_es": "Bélgica",
+   "customers": 16,
+   "suppressed": false
+  },
+  {
+   "churn_rate_observed": null,
+   "contacted": null,
+   "country_es": "Islas del Canal",
+   "customers": null,
+   "suppressed": true
+  },
+  {
+   "churn_rate_observed": 0.227,
+   "contacted": 11,
+   "country_es": "Francia",
+   "customers": 44,
+   "suppressed": false
+  },
+  {
+   "churn_rate_observed": 0.2,
+   "contacted": 9,
+   "country_es": "Alemania",
+   "customers": 50,
+   "suppressed": false
+  },
+  {
+   "churn_rate_observed": null,
+   "contacted": null,
+   "country_es": "Italia",
+   "customers": null,
+   "suppressed": true
+  },
+  {
+   "churn_rate_observed": null,
+   "contacted": null,
+   "country_es": "Países Bajos",
+   "customers": null,
+   "suppressed": true
+  },
+  {
+   "churn_rate_observed": null,
+   "contacted": null,
+   "country_es": "Portugal",
+   "customers": null,
+   "suppressed": true
+  },
+  {
+   "churn_rate_observed": 0.286,
+   "contacted": 3,
+   "country_es": "España",
+   "customers": 14,
+   "suppressed": false
+  },
+  {
+   "churn_rate_observed": null,
+   "contacted": null,
+   "country_es": "Suecia",
+   "customers": null,
+   "suppressed": true
+  },
+  {
+   "churn_rate_observed": 0.4,
+   "contacted": 4,
+   "country_es": "Suiza",
+   "customers": 10,
+   "suppressed": false
+  },
+  {
+   "churn_rate_observed": 0.324,
+   "contacted": 435,
+   "country_es": "Reino Unido",
+   "customers": 1713,
+   "suppressed": false
+  },
+  {
+   "churn_rate_observed": 0.465,
+   "contacted": 17,
+   "country_es": "Otros",
+   "customers": 43,
+   "suppressed": false
+  }
+ ],
+ "by_country_cut": "2011-09-01",
+ "cuts": [
+  {
+   "block": "test",
+   "by_as_of": [
+    {
+     "as_of": "2011-07-31",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": null,
+     "expected_churners": 875.0,
+     "returned": null,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-08-31",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 83,
+     "expected_churners": 875.0,
+     "returned": 654,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-09-30",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 159,
+     "expected_churners": 875.0,
+     "returned": 1048,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-10-31",
+     "churned": 739,
+     "contacted_churned": 337,
+     "contacted_returned": 216,
+     "expected_churners": 875.0,
+     "returned": 1278,
+     "window_closed": true
+    },
+    {
+     "as_of": "2011-11-30",
+     "churned": 739,
+     "contacted_churned": 337,
+     "contacted_returned": 216,
+     "expected_churners": 875.0,
+     "returned": 1278,
+     "window_closed": true
+    },
+    {
+     "as_of": "2011-12-09",
+     "churned": 739,
+     "contacted_churned": 337,
+     "contacted_returned": 216,
+     "expected_churners": 875.0,
+     "returned": 1278,
+     "window_closed": true
+    }
+   ],
+   "contact_share": 0.274,
+   "contacted": 553,
+   "cut": "2011-08-01",
+   "is_censored": false,
+   "scored": 2017
+  },
+  {
+   "block": "test",
+   "by_as_of": [
+    {
+     "as_of": "2011-08-31",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": null,
+     "expected_churners": 825.2,
+     "returned": null,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-09-30",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 88,
+     "expected_churners": 825.2,
+     "returned": 721,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-10-31",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 159,
+     "expected_churners": 825.2,
+     "returned": 1081,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-11-30",
+     "churned": 615,
+     "contacted_churned": 266,
+     "contacted_returned": 222,
+     "expected_churners": 825.2,
+     "returned": 1303,
+     "window_closed": true
+    },
+    {
+     "as_of": "2011-12-09",
+     "churned": 615,
+     "contacted_churned": 266,
+     "contacted_returned": 222,
+     "expected_churners": 825.2,
+     "returned": 1303,
+     "window_closed": true
+    }
+   ],
+   "contact_share": 0.254,
+   "contacted": 488,
+   "cut": "2011-09-01",
+   "is_censored": false,
+   "scored": 1918
+  },
+  {
+   "block": "post_test",
+   "by_as_of": [
+    {
+     "as_of": "2011-09-30",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": null,
+     "expected_churners": 938.8,
+     "returned": null,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-10-31",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 119,
+     "expected_churners": 938.8,
+     "returned": 774,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-11-30",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 229,
+     "expected_churners": 938.8,
+     "returned": 1279,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-12-09",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 250,
+     "expected_churners": 938.8,
+     "returned": 1348,
+     "window_closed": false
+    }
+   ],
+   "contact_share": 0.274,
+   "contacted": 588,
+   "cut": "2011-10-01",
+   "is_censored": true,
+   "scored": 2144
+  },
+  {
+   "block": "post_test",
+   "by_as_of": [
+    {
+     "as_of": "2011-10-31",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": null,
+     "expected_churners": 1107.1,
+     "returned": null,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-11-30",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 182,
+     "expected_churners": 1107.1,
+     "returned": 1051,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-12-09",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 213,
+     "expected_churners": 1107.1,
+     "returned": 1191,
+     "window_closed": false
+    }
+   ],
+   "contact_share": 0.305,
+   "contacted": 748,
+   "cut": "2011-11-01",
+   "is_censored": true,
+   "scored": 2449
+  },
+  {
+   "block": "post_test",
+   "by_as_of": [
+    {
+     "as_of": "2011-11-30",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": null,
+     "expected_churners": 1273.9,
+     "returned": null,
+     "window_closed": false
+    },
+    {
+     "as_of": "2011-12-09",
+     "churned": null,
+     "contacted_churned": null,
+     "contacted_returned": 51,
+     "expected_churners": 1273.9,
+     "returned": 489,
+     "window_closed": false
+    }
+   ],
+   "contact_share": 0.311,
+   "contacted": 879,
+   "cut": "2011-12-01",
+   "is_censored": true,
+   "scored": 2825
+  }
+ ],
+ "model_version": "v1",
+ "reasons": [
+  {
+   "feature_es": "Tiempo medio entre compras",
+   "share_of_contacted_top3": 0.779
+  },
+  {
+   "feature_es": "Días de compra",
+   "share_of_contacted_top3": 0.777
+  },
+  {
+   "feature_es": "Antigüedad",
+   "share_of_contacted_top3": 0.406
+  },
+  {
+   "feature_es": "Gasto total",
+   "share_of_contacted_top3": 0.25
+  },
+  {
+   "feature_es": "Mayor tiempo entre compras",
+   "share_of_contacted_top3": 0.246
+  },
+  {
+   "feature_es": "Gasto en 90 días",
+   "share_of_contacted_top3": 0.139
+  },
+  {
+   "feature_es": "Productos distintos en 365 días",
+   "share_of_contacted_top3": 0.107
+  },
+  {
+   "feature_es": "Unidades medianas por línea",
+   "share_of_contacted_top3": 0.072
+  },
+  {
+   "feature_es": "Compras en 90 días",
+   "share_of_contacted_top3": 0.055
+  },
+  {
+   "feature_es": "Unidades en 90 días",
+   "share_of_contacted_top3": 0.055
+  }
+ ],
+ "run_key": "20261112T182457477294Z",
+ "schema_version": 1,
+ "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb",
+ "threshold": 0.55
+}

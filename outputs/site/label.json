@@ -1,0 +1,205 @@
+{
+ "as_of": "2011-12-09",
+ "attribution": "Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D (CC BY 4.0)",
+ "guests": {
+  "lines_share": 0.225,
+  "value_share": 0.151
+ },
+ "leakage": {
+  "auc_control_v2": 1.0,
+  "auc_f1_v2": 0.762,
+  "control_es": "F1 más los días hasta la próxima compra (mira la ventana)"
+ },
+ "n_by_m": [
+  {
+   "churn_rate": 0.523,
+   "m": 90,
+   "n": 60
+  },
+  {
+   "churn_rate": 0.571,
+   "m": 180,
+   "n": 60
+  },
+  {
+   "churn_rate": 0.432,
+   "m": 90,
+   "n": 90
+  },
+  {
+   "churn_rate": 0.483,
+   "m": 180,
+   "n": 90
+  },
+  {
+   "churn_rate": 0.369,
+   "m": 90,
+   "n": 120
+  },
+  {
+   "churn_rate": 0.421,
+   "m": 180,
+   "n": 120
+  }
+ ],
+ "rates_by_cut": [
+  {
+   "block": "train",
+   "churn_rate": 0.443,
+   "customers": 2012,
+   "cut": "2010-06-01",
+   "suppressed": false
+  },
+  {
+   "block": "train",
+   "churn_rate": 0.429,
+   "customers": 2013,
+   "cut": "2010-07-01",
+   "suppressed": false
+  },
+  {
+   "block": "train",
+   "churn_rate": 0.359,
+   "customers": 1993,
+   "cut": "2010-08-01",
+   "suppressed": false
+  },
+  {
+   "block": "train",
+   "churn_rate": 0.312,
+   "customers": 1925,
+   "cut": "2010-09-01",
+   "suppressed": false
+  },
+  {
+   "block": "train",
+   "churn_rate": 0.365,
+   "customers": 2018,
+   "cut": "2010-10-01",
+   "suppressed": false
+  },
+  {
+   "block": "train",
+   "churn_rate": 0.463,
+   "customers": 2477,
+   "cut": "2010-11-01",
+   "suppressed": false
+  },
+  {
+   "block": "train",
+   "churn_rate": 0.579,
+   "customers": 2859,
+   "cut": "2010-12-01",
+   "suppressed": false
+  },
+  {
+   "block": "purge_1",
+   "churn_rate": 0.576,
+   "customers": 2638,
+   "cut": "2011-01-01",
+   "suppressed": false
+  },
+  {
+   "block": "purge_1",
+   "churn_rate": 0.529,
+   "customers": 2178,
+   "cut": "2011-02-01",
+   "suppressed": false
+  },
+  {
+   "block": "valid_v1",
+   "churn_rate": 0.434,
+   "customers": 1677,
+   "cut": "2011-03-01",
+   "suppressed": false
+  },
+  {
+   "block": "valid_v1",
+   "churn_rate": 0.419,
+   "customers": 1772,
+   "cut": "2011-04-01",
+   "suppressed": false
+  },
+  {
+   "block": "valid_v2",
+   "churn_rate": 0.406,
+   "customers": 1886,
+   "cut": "2011-05-01",
+   "suppressed": false
+  },
+  {
+   "block": "purge_2",
+   "churn_rate": 0.436,
+   "customers": 1954,
+   "cut": "2011-06-01",
+   "suppressed": false
+  },
+  {
+   "block": "purge_2",
+   "churn_rate": 0.404,
+   "customers": 1961,
+   "cut": "2011-07-01",
+   "suppressed": false
+  },
+  {
+   "block": "test",
+   "churn_rate": 0.366,
+   "customers": 2017,
+   "cut": "2011-08-01",
+   "suppressed": false
+  },
+  {
+   "block": "test",
+   "churn_rate": 0.321,
+   "customers": 1918,
+   "cut": "2011-09-01",
+   "suppressed": false
+  },
+  {
+   "block": "post_test",
+   "churn_rate": null,
+   "customers": 2144,
+   "cut": "2011-10-01",
+   "suppressed": false
+  },
+  {
+   "block": "post_test",
+   "churn_rate": null,
+   "customers": 2449,
+   "cut": "2011-11-01",
+   "suppressed": false
+  },
+  {
+   "block": "post_test",
+   "churn_rate": null,
+   "customers": 2825,
+   "cut": "2011-12-01",
+   "suppressed": false
+  }
+ ],
+ "rule": {
+  "m_days": 90,
+  "n_days": 90,
+  "text_es": "Un cliente activo en los 90 días anteriores al corte se fue si no tiene ninguna compra neta en los 90 días desde el corte. La baja no está en los datos: se define así."
+ },
+ "run_key": "20261112T182457477294Z",
+ "schema_version": 1,
+ "silence_return": [
+  {
+   "n": 60,
+   "return_share": 0.295,
+   "silences": 8002
+  },
+  {
+   "n": 90,
+   "return_share": 0.317,
+   "silences": 6611
+  },
+  {
+   "n": 120,
+   "return_share": 0.293,
+   "silences": 5644
+  }
+ ],
+ "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb"
+}

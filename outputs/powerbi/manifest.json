@@ -1,0 +1,139 @@
+{
+ "as_of": "2011-12-09",
+ "attribution": "Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D (CC BY 4.0)",
+ "files": [
+  {
+   "bytes": 11131,
+   "name": "dim_date.parquet",
+   "sha256": "d89d15677d9da2fe31b05de938d790e1ecd8fb9c321e97c982f5d8d532559564"
+  },
+  {
+   "bytes": 3941,
+   "name": "dim_cut.parquet",
+   "sha256": "a87ab77e6082f7d4382e62864a1ccd4fb4ce56aa31a17f54c9adeecb8d66ab82"
+  },
+  {
+   "bytes": 2648,
+   "name": "dim_country.parquet",
+   "sha256": "44836fedd3bef13836cfe28a9645efdc5c972f475fcdc14f404ca7ce57ffc126"
+  },
+  {
+   "bytes": 2438,
+   "name": "dim_risk_band.parquet",
+   "sha256": "9eec8b10976166be1eef45bd4c490df8bfe6c5bfd4ad2d2cdc725a89b610a055"
+  },
+  {
+   "bytes": 3600,
+   "name": "dim_reason.parquet",
+   "sha256": "346418a8f717589e1b01c7ce4c3c13c3cbefb1321063bfee00ffa8c9d3784dcb"
+  },
+  {
+   "bytes": 1959,
+   "name": "dim_method.parquet",
+   "sha256": "27d0c958a5895c7ef6ee8a8e76917b4474286d2266ea2e31385d84d16e4659e7"
+  },
+  {
+   "bytes": 5214,
+   "name": "dim_model.parquet",
+   "sha256": "b7bd67eb50ee2a4b249d580d3c00b1a8b69e9b71ef0711fccc8dba10a3910890"
+  },
+  {
+   "bytes": 4903,
+   "name": "dim_pipeline_run.parquet",
+   "sha256": "732c79cf0cd3ef2963cb9b3802682b69bb6a05c83c5336e1d642aaa72d7181c5"
+  },
+  {
+   "bytes": 2003,
+   "name": "dim_as_of.parquet",
+   "sha256": "9ba96747a25dadedb6181c5a96815c036fcf5ef1d91a4f6973053a43e4771301"
+  },
+  {
+   "bytes": 4295,
+   "name": "fact_cut_band.parquet",
+   "sha256": "f36e6aa384c6b62baf304f4bd4a0083624293fd01f7cfafb38aa505da73ab0b5"
+  },
+  {
+   "bytes": 3163,
+   "name": "fact_cut_country.parquet",
+   "sha256": "cb0d5097c8879344e48673e2bb8682e40fc20eaecbda45c3266601cbd819c145"
+  },
+  {
+   "bytes": 3921,
+   "name": "fact_reason_summary.parquet",
+   "sha256": "7b871bfee6da3f7ddde5d16e2783b18212ea5f052e08b6ba19ac07b8414c2382"
+  },
+  {
+   "bytes": 4508,
+   "name": "fact_tracking.parquet",
+   "sha256": "87bc1ecd3bc6cb2cd8b908c08d4a7167a1e40a66a12118989131502b8d046bda"
+  },
+  {
+   "bytes": 7369,
+   "name": "fact_method_metrics.parquet",
+   "sha256": "2d53915c6d309d2b6931b09154099a03a816bc7eb21a1098fd7ee329704f509b"
+  },
+  {
+   "bytes": 8259,
+   "name": "fact_evaluation_summary.parquet",
+   "sha256": "2c2ea027dbadef18c9cf5023c331117051419d2ed56bea2b648b479e6f99a9fb"
+  },
+  {
+   "bytes": 26608,
+   "name": "fact_gain_curve.parquet",
+   "sha256": "a34d63ae0dfa6d5dadb3e6cdf82d5b34e6497143032eb442ed701e494f304932"
+  },
+  {
+   "bytes": 28083,
+   "name": "fact_roc.parquet",
+   "sha256": "62f3ddfe1ba6e53110736e3b550c94a1e58c2d593f6efa7443c6a70d1c29cc92"
+  },
+  {
+   "bytes": 4916,
+   "name": "fact_calibration.parquet",
+   "sha256": "60b3bb561e61d192a48f89fb3bf95e469d354489ad55506dc27c9dbd774da2ea"
+  },
+  {
+   "bytes": 4398,
+   "name": "fact_cost_sensitivity.parquet",
+   "sha256": "b432b82111a513909d3dcd4e99722d591a7b31c75bd0430bfe9ba5db1173e5e1"
+  },
+  {
+   "bytes": 4579,
+   "name": "fact_sensitivity.parquet",
+   "sha256": "45635a38487edebfdee7bd1b2bd572a7079754fe7578de35a7a236c9f09fbad8"
+  },
+  {
+   "bytes": 2233,
+   "name": "fact_label_definition.parquet",
+   "sha256": "2795f3cd8e3540292fb7391b6e8ca25cd85ebe9ce333a6a50e833e75da2ecc21"
+  },
+  {
+   "bytes": 1984,
+   "name": "fact_silence_return.parquet",
+   "sha256": "5d389fa7b440ee831646979aefa1c3e9bfc7aef6b88f37f4c464ab52464e858c"
+  },
+  {
+   "bytes": 2590,
+   "name": "fact_importance.parquet",
+   "sha256": "32a740bbdca9172aa204b9cce7f0b9292c220da7cd9f747418b5bd785a883da5"
+  },
+  {
+   "bytes": 2947,
+   "name": "fact_selection.parquet",
+   "sha256": "5d7321a770d7dfe9cb9ea506fa530984a2246be681ef87e10c45033da24e7db4"
+  },
+  {
+   "bytes": 2898,
+   "name": "fact_leakage.parquet",
+   "sha256": "5288395137c2314031e39aa011145a72d35ec8a4107ac87fd328116da3332835"
+  },
+  {
+   "bytes": 7817,
+   "name": "fact_validation.parquet",
+   "sha256": "3326d870f54bc62edb45966a61440e012ecc7584e693ddb43fb7632b7b4f7462"
+  }
+ ],
+ "run_key": "20261112T182457477294Z",
+ "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb",
+ "version": 1
+}

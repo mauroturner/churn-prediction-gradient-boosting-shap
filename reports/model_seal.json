@@ -1,0 +1,621 @@
+{
+ "launch": {
+  "as_of": "2011-07-31",
+  "b_star": "b3_bgnbd",
+  "bgnbd": {
+   "a": 0.1716618283156765,
+   "alpha": 75.83115787644375,
+   "b": 105.91217965689451,
+   "log_likelihood": -59505.36113742567,
+   "r": 0.9091038939669885
+  },
+  "config_sha256": "beac418eebd130577b3f162f91ea794ccd97b4ac29896c6e00a6390cbb27bc6d",
+  "country_groups": [
+   "Australia",
+   "Belgium",
+   "Channel Islands",
+   "France",
+   "Germany",
+   "Italy",
+   "Netherlands",
+   "Portugal",
+   "Spain",
+   "Sweden",
+   "Switzerland",
+   "United Kingdom",
+   "Otros"
+  ],
+  "feature_set": "f1",
+  "model_version": "v1",
+  "params": {
+   "learning_rate": 0.05,
+   "max_leaf_nodes": 15,
+   "min_samples_leaf": 200
+  },
+  "run_key": "20261112T174620846533Z",
+  "sealed_config": {
+   "baselines": {
+    "bgnbd_fit_cut": "2010-12-01",
+    "bgnbd_max_iter": 5000,
+    "strongest_candidates": [
+     "b4_frequency",
+     "b2_rfm",
+     "b3_bgnbd"
+    ]
+   },
+   "costs": {
+    "offer_cost": 5.0,
+    "rescue_rate": 0.2,
+    "retained_value": 50.0,
+    "sensitivity_max": 0.9,
+    "sensitivity_min": 0.1,
+    "sensitivity_step": 0.05,
+    "threshold_max": 0.99,
+    "threshold_min": 0.01,
+    "threshold_step": 0.01
+   },
+   "criteria": {
+    "c07_max_bias": 0.02,
+    "c07_max_ece": 0.03,
+    "leak_tripwire_auc": 0.95,
+    "shap_additivity_tol": 1e-06
+   },
+   "deliveries": {
+    "first_date": "2009-12-01",
+    "last_date": "2011-12-09",
+    "launch_as_of": "2011-07-31"
+   },
+   "evaluation": {
+    "bootstrap_resamples": 1000,
+    "bootstrap_seed": 0,
+    "calibration_bins": 10,
+    "gain_points": 100,
+    "roc_points": 200,
+    "shap_top_reasons": 3,
+    "top_shares": [
+     0.1,
+     0.2
+    ]
+   },
+   "features": {
+    "candidate_sets": [
+     "f0",
+     "f1",
+     "f2"
+    ],
+    "country_min_customers": 10,
+    "long_window_days": 365,
+    "short_window_days": 90
+   },
+   "label": {
+    "active_days": 90,
+    "first_cut": "2010-06-01",
+    "horizon_days": 90,
+    "last_cut": "2011-12-01"
+   },
+   "model": {
+    "calibration": "isotonic",
+    "l2_regularization": 1.0,
+    "learning_rate": [
+     0.05,
+     0.1
+    ],
+    "max_iter": 300,
+    "max_leaf_nodes": [
+     15,
+     31
+    ],
+    "min_samples_leaf": [
+     50,
+     200
+    ],
+    "model_version": "v1",
+    "random_state": 0
+   },
+   "sensitivity": {
+    "m180_active_days": 180,
+    "n120_horizon_days": 120,
+    "n60_horizon_days": 60,
+    "variants": [
+     "n60",
+     "n120",
+     "m180",
+     "no_december"
+    ]
+   },
+   "source": {
+    "sheets": [
+     "Year 2009-2010",
+     "Year 2010-2011"
+    ]
+   },
+   "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb",
+   "split": {
+    "test_first": "2011-08-01",
+    "test_last": "2011-09-01",
+    "train_first": "2010-06-01",
+    "train_last": "2010-12-01",
+    "v1_first": "2011-03-01",
+    "v1_last": "2011-04-01",
+    "v2_first": "2011-05-01",
+    "v2_last": "2011-05-01"
+   }
+  },
+  "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb",
+  "threshold": 0.55,
+  "valid_scores_sha256": "14aefa583c1a2bbc621d42ee8920e5ab4fdb299df1698f8b58fa2e1ec966b876"
+ },
+ "test": {
+  "as_of": "2011-11-30",
+  "config_sha256": "beac418eebd130577b3f162f91ea794ccd97b4ac29896c6e00a6390cbb27bc6d",
+  "criteria": [
+   {
+    "baseline_value": 0.7463761998973295,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C01",
+    "passed": false,
+    "value": 0.7446555816078982,
+    "verdict_es": "El modelo no supera a RFM en AUC: 0,745 frente a 0,746."
+   },
+   {
+    "baseline_value": null,
+    "ci_high": 0.010983028943412555,
+    "ci_low": -0.01445400352288483,
+    "id": "C02",
+    "passed": false,
+    "value": -0.0017206182894312638,
+    "verdict_es": "El modelo no supera a RFM fuera del ruido: la diferencia de AUC es −0,00, con un intervalo del 95 % de −0,01 a 0,01."
+   },
+   {
+    "baseline_value": null,
+    "ci_high": 0.007796974552414009,
+    "ci_low": -0.01664456913822763,
+    "id": "C03",
+    "passed": false,
+    "value": -0.004286809012800541,
+    "verdict_es": "El modelo no supera a la base más fuerte fuera del ruido: la diferencia de AUC es −0,00, con un intervalo del 95 % de −0,02 a 0,01."
+   },
+   {
+    "baseline_value": 268.0,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C04",
+    "passed": false,
+    "value": 253.0,
+    "verdict_es": "En el 10 % de mayor riesgo, el modelo no capta más bajas que la base más fuerte: 253 frente a 268."
+   },
+   {
+    "baseline_value": 238.88182973316415,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C05",
+    "passed": false,
+    "value": 209.6569250317662,
+    "verdict_es": "Con los costos supuestos, el modelo no deja más beneficio neto que la base más fuerte con su propio umbral: 209,7 u. frente a 238,9 u. por cada 1.000 clientes."
+   },
+   {
+    "baseline_value": 0.0,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C06",
+    "passed": true,
+    "value": 209.6569250317662,
+    "verdict_es": "El modelo supera a contactar a todos y a no contactar a nadie: 209,7 u. por cada 1.000 clientes frente a 0,0."
+   },
+   {
+    "baseline_value": 0.0879914261140528,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C07",
+    "passed": false,
+    "value": 0.08900914910681854,
+    "verdict_es": "La calibración en la prueba no cumple: ECE 0,089 y sesgo 0,088."
+   },
+   {
+    "baseline_value": 0.20296671705577898,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C08",
+    "passed": true,
+    "value": 0.19760039741423044,
+    "verdict_es": "El Brier del modelo es menor que el de la base más fuerte: 0,1976 frente a 0,2030."
+   },
+   {
+    "baseline_value": 17.0,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C09",
+    "passed": false,
+    "value": 9.0,
+    "verdict_es": "El modelo no deja al menos el beneficio de la base más fuerte en cada punto de equilibrio: en 9 de los 17 de 0,10 a 0,90."
+   },
+   {
+    "baseline_value": null,
+    "ci_high": null,
+    "ci_low": null,
+    "id": "C10",
+    "passed": null,
+    "value": null,
+    "verdict_es": "Por corte de prueba: 2011-08-01: AUC 0,744, tasa de bajas 0,366, diferencia con B2 −0,00 y con B* −0,00; 2011-09-01: AUC 0,746, tasa de bajas 0,321, diferencia con B2 −0,00 y con B* −0,01. Sensibilidades: N = 60 días (2011-08-01, 2011-09-01): AUC del modelo 0,737, de RFM 0,729 y de B* 0,744, intervalo de la diferencia con B* de −0,02 a 0,00; N = 120 días (2011-08-01): AUC del modelo 0,756, de RFM 0,766 y de B* 0,754, intervalo de la diferencia con B* de −0,02 a 0,02; M = 180 días (2011-08-01, 2011-09-01): AUC del modelo 0,750, de RFM 0,766 y de B* 0,760, intervalo de la diferencia con B* de −0,02 a −0,00; sin el corte de diciembre en el entrenamiento (2011-08-01, 2011-09-01): AUC del modelo 0,744, de RFM 0,746 y de B* 0,749, intervalo de la diferencia con B* de −0,02 a 0,01."
+   }
+  ],
+  "metrics": {
+   "b0_all": {
+    "auc": 0.5,
+    "bias": null,
+    "brier": null,
+    "capture_10": 0.08862629246676514,
+    "capture_20": 0.18537666174298376,
+    "captured_10": 120.0,
+    "captured_20": 251.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 1.0,
+    "ece": null,
+    "lift_10": 0.885138225524672,
+    "lift_20": 0.9257070608612196,
+    "mean_p": null,
+    "nb_per_1000": -1559.0851334180431,
+    "nb_total": -6135.0,
+    "pr_auc": 0.34409148665819567,
+    "precision": 0.34409148665819567,
+    "recall": 1.0,
+    "rows": 3935.0,
+    "threshold": null
+   },
+   "b1_recency": {
+    "auc": 0.6004203825592888,
+    "bias": 0.08710417709565077,
+    "brier": 0.22697949183873062,
+    "capture_10": 0.13367799113737075,
+    "capture_20": 0.2636632200886263,
+    "captured_10": 181.0,
+    "captured_20": 357.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.11359593392630242,
+    "ece": 0.08710417709565081,
+    "lift_10": 1.3350834901663804,
+    "lift_20": 1.31664311046795,
+    "mean_p": 0.43119566375384644,
+    "nb_per_1000": -47.013977128335455,
+    "nb_total": -185.0,
+    "pr_auc": 0.42482728502868805,
+    "precision": 0.45861297539149887,
+    "recall": 0.15140324963072377,
+    "rows": 3935.0,
+    "threshold": 0.55
+   },
+   "b2_rfm": {
+    "auc": 0.7463761998973295,
+    "bias": 0.07498957181207083,
+    "brier": 0.19561896065525752,
+    "capture_10": 0.1912850812407681,
+    "capture_20": 0.35302806499261447,
+    "captured_10": 259.0,
+    "captured_20": 478.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.36111817026683607,
+    "ece": 0.07555180545388296,
+    "lift_10": 1.9104233367574173,
+    "lift_20": 1.7629002991699718,
+    "mean_p": 0.4190810584702665,
+    "nb_per_1000": 209.65692503176643,
+    "nb_total": 825.0000000000009,
+    "pr_auc": 0.556918298519878,
+    "precision": 0.558057705840957,
+    "recall": 0.585672082717873,
+    "rows": 3935.0,
+    "threshold": 0.61
+   },
+   "b3_bgnbd": {
+    "auc": 0.7489423906206988,
+    "bias": 0.11039477571470874,
+    "brier": 0.20296671705577898,
+    "capture_10": 0.19793205317577547,
+    "capture_20": 0.3641063515509601,
+    "captured_10": 268.0,
+    "captured_20": 493.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.35069885641677256,
+    "ece": 0.11039477571470871,
+    "lift_10": 1.9768087036717676,
+    "lift_20": 1.818221438265264,
+    "mean_p": 0.4544862623729044,
+    "nb_per_1000": 238.88182973316415,
+    "nb_total": 940.0000000000009,
+    "pr_auc": 0.5837703844648261,
+    "precision": 0.5681159420289855,
+    "recall": 0.5790251107828656,
+    "rows": 3935.0,
+    "threshold": 0.6
+   },
+   "b4_frequency": {
+    "auc": 0.7522097912423306,
+    "bias": 0.09673144650590515,
+    "brier": 0.19823761005463691,
+    "capture_10": 0.172821270310192,
+    "capture_20": 0.344903988183161,
+    "captured_10": 234.0,
+    "captured_20": 467.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.4660736975857687,
+    "ece": 0.09673144650590514,
+    "lift_10": 1.7260195397731104,
+    "lift_20": 1.7223314638334244,
+    "mean_p": 0.4408229331641008,
+    "nb_per_1000": 106.73443456162643,
+    "nb_total": 420.0,
+    "pr_auc": 0.5465201937841576,
+    "precision": 0.5229007633587787,
+    "recall": 0.7082717872968981,
+    "rows": 3935.0,
+    "threshold": 0.59
+   },
+   "b5_alive": {
+    "auc": 0.4163050687989781,
+    "bias": 0.08157634144865678,
+    "brier": 0.23234723495169618,
+    "capture_10": 0.07459379615952733,
+    "capture_20": 0.155096011816839,
+    "captured_10": 101.0,
+    "captured_20": 210.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.0,
+    "ece": 0.08157634144865678,
+    "lift_10": 0.744991339816599,
+    "lift_20": 0.7744959473340881,
+    "mean_p": 0.42566782810685244,
+    "nb_per_1000": 0.0,
+    "nb_total": 0.0,
+    "pr_auc": 0.30022051431198715,
+    "precision": null,
+    "recall": 0.0,
+    "rows": 3935.0,
+    "threshold": 0.99
+   },
+   "b_star": {
+    "auc": 0.7489423906206988,
+    "bias": 0.11039477571470874,
+    "brier": 0.20296671705577898,
+    "capture_10": 0.19793205317577547,
+    "capture_20": 0.3641063515509601,
+    "captured_10": 268.0,
+    "captured_20": 493.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.35069885641677256,
+    "ece": 0.11039477571470871,
+    "lift_10": 1.9768087036717676,
+    "lift_20": 1.818221438265264,
+    "mean_p": 0.4544862623729044,
+    "nb_per_1000": 238.88182973316415,
+    "nb_total": 940.0000000000009,
+    "pr_auc": 0.5837703844648261,
+    "precision": 0.5681159420289855,
+    "recall": 0.5790251107828656,
+    "rows": 3935.0,
+    "threshold": 0.6
+   },
+   "bootstrap": {
+    "b2_rfm.ci_high": 0.010983028943412555,
+    "b2_rfm.ci_low": -0.01445400352288483,
+    "b2_rfm.diff": -0.0017206182894312638,
+    "b2_rfm.discarded": 0.0,
+    "b2_rfm.kept": 1000.0,
+    "b_star.ci_high": 0.007796974552414009,
+    "b_star.ci_low": -0.01664456913822763,
+    "b_star.diff": -0.004286809012800541,
+    "b_star.discarded": 0.0,
+    "b_star.kept": 1000.0
+   },
+   "cost_sensitivity": {
+    "0.10.b_star": 2504.193138500635,
+    "0.10.model": 2502.1601016518425,
+    "0.15.b_star": 2080.304955527319,
+    "0.15.model": 2046.7598475222367,
+    "0.20.b_star": 1696.5692503176617,
+    "0.20.model": 1716.8996188055912,
+    "0.25.b_star": 1308.1321473951714,
+    "0.25.model": 1347.5222363405337,
+    "0.30.b_star": 1030.4955527318932,
+    "0.30.model": 1033.5451080050825,
+    "0.35.b_star": 719.1867852604832,
+    "0.35.model": 789.1994917407881,
+    "0.40.b_star": 545.3621346886912,
+    "0.40.model": 536.721728081321,
+    "0.45.b_star": 414.2312579415502,
+    "0.45.model": 341.931385006353,
+    "0.50.b_star": 238.88182973316415,
+    "0.50.model": 209.6569250317662,
+    "0.55.b_star": 63.53240152477764,
+    "0.55.model": 122.10927573062239,
+    "0.60.b_star": 41.16899618805614,
+    "0.60.model": 21.855146124523507,
+    "0.65.b_star": 37.35705209656925,
+    "0.65.model": -11.944091486658195,
+    "0.70.b_star": -6.35324015247759,
+    "0.70.model": -1.5247776365946055,
+    "0.75.b_star": -8.89453621346887,
+    "0.75.model": -26.683608640406668,
+    "0.80.b_star": -24.396442185514644,
+    "0.80.model": 0.5082592121982207,
+    "0.85.b_star": -27.44599745870394,
+    "0.85.model": 0.3811944091486658,
+    "0.90.b_star": -8.894536213468882,
+    "0.90.model": 0.2541296060991101
+   },
+   "model": {
+    "auc": 0.7446555816078982,
+    "bias": 0.0879914261140528,
+    "brier": 0.19760039741423044,
+    "capture_10": 0.18685376661742983,
+    "capture_20": 0.3559822747415066,
+    "captured_10": 253.0,
+    "captured_20": 482.0,
+    "churn_rate": 0.34409148665819567,
+    "contact_share": 0.26454891994917407,
+    "ece": 0.08900914910681854,
+    "lift_10": 1.8661664254811836,
+    "lift_20": 1.7776526029287163,
+    "mean_p": 0.4320829127722485,
+    "nb_per_1000": 209.6569250317662,
+    "nb_total": 825.0,
+    "pr_auc": 0.5606991825485605,
+    "precision": 0.579250720461095,
+    "recall": 0.44534711964549484,
+    "rows": 3935.0,
+    "threshold": 0.55
+   }
+  },
+  "per_cut": [
+   {
+    "auc_b2_rfm": 0.7472253457597184,
+    "auc_b_star": 0.7442590439645843,
+    "auc_model": 0.7442325733078368,
+    "churn_rate": 0.3663857213683689,
+    "cut": "2011-08-01",
+    "diff_b2_rfm": -0.0029927724518816756,
+    "diff_b_star": -2.6470656747545895e-05,
+    "rows": 2017
+   },
+   {
+    "auc_b2_rfm": 0.7485514977943332,
+    "auc_b_star": 0.7543292838914574,
+    "auc_model": 0.7459727083840293,
+    "churn_rate": 0.32064650677789364,
+    "cut": "2011-09-01",
+    "diff_b2_rfm": -0.002578789410303872,
+    "diff_b_star": -0.008356575507428077,
+    "rows": 1918
+   }
+  ],
+  "run_key": "20261112T174952694192Z",
+  "variants": [
+   {
+    "auc_b2": 0.7294349908492661,
+    "auc_b_star": 0.7435986397206755,
+    "auc_model": 0.7368415040951157,
+    "churn_rate": 0.4650571791613723,
+    "diff_b2_ci_high": 0.018836647363934485,
+    "diff_b2_ci_low": -0.004780825355983623,
+    "diff_b_star_ci_high": 0.0028661677547969413,
+    "diff_b_star_ci_low": -0.017542109433524453,
+    "label_es": "N = 60 días",
+    "m": 90,
+    "n": 60,
+    "rows": 3935,
+    "test_cuts": [
+     "2011-08-01",
+     "2011-09-01"
+    ],
+    "train_cuts": [
+     "2010-06-01",
+     "2010-07-01",
+     "2010-08-01",
+     "2010-09-01",
+     "2010-10-01",
+     "2010-11-01",
+     "2010-12-01"
+    ],
+    "valid_v1_cuts": [
+     "2011-03-01",
+     "2011-04-01"
+    ],
+    "variant": "n60"
+   },
+   {
+    "auc_b2": 0.7657293739178292,
+    "auc_b_star": 0.7541996137670377,
+    "auc_model": 0.7559603100578862,
+    "churn_rate": 0.28061477441745164,
+    "diff_b2_ci_high": 0.008059347650321227,
+    "diff_b2_ci_low": -0.026044597695492826,
+    "diff_b_star_ci_high": 0.020014606886161076,
+    "diff_b_star_ci_low": -0.01727505569246198,
+    "label_es": "N = 120 días",
+    "m": 90,
+    "n": 120,
+    "rows": 2017,
+    "test_cuts": [
+     "2011-08-01"
+    ],
+    "train_cuts": [
+     "2010-06-01",
+     "2010-07-01",
+     "2010-08-01",
+     "2010-09-01",
+     "2010-10-01",
+     "2010-11-01"
+    ],
+    "valid_v1_cuts": [
+     "2011-03-01",
+     "2011-04-01"
+    ],
+    "variant": "n120"
+   },
+   {
+    "auc_b2": 0.7658383677989546,
+    "auc_b_star": 0.7600496300637316,
+    "auc_model": 0.7495833638561277,
+    "churn_rate": 0.4185372918175235,
+    "diff_b2_ci_high": -0.004864108485311879,
+    "diff_b2_ci_low": -0.027134454846449753,
+    "diff_b_star_ci_high": -0.00029164713746870457,
+    "diff_b_star_ci_low": -0.02051168618656083,
+    "label_es": "M = 180 días",
+    "m": 180,
+    "n": 90,
+    "rows": 5524,
+    "test_cuts": [
+     "2011-08-01",
+     "2011-09-01"
+    ],
+    "train_cuts": [
+     "2010-06-01",
+     "2010-07-01",
+     "2010-08-01",
+     "2010-09-01",
+     "2010-10-01",
+     "2010-11-01",
+     "2010-12-01"
+    ],
+    "valid_v1_cuts": [
+     "2011-03-01",
+     "2011-04-01"
+    ],
+    "variant": "m180"
+   },
+   {
+    "auc_b2": 0.7463761998973295,
+    "auc_b_star": 0.7489423906206988,
+    "auc_model": 0.74429102685973,
+    "churn_rate": 0.34409148665819567,
+    "diff_b2_ci_high": 0.01011490172400296,
+    "diff_b2_ci_low": -0.013269536571303267,
+    "diff_b_star_ci_high": 0.009410985845951724,
+    "diff_b_star_ci_low": -0.01906225039730957,
+    "label_es": "sin el corte de diciembre en el entrenamiento",
+    "m": 90,
+    "n": 90,
+    "rows": 3935,
+    "test_cuts": [
+     "2011-08-01",
+     "2011-09-01"
+    ],
+    "train_cuts": [
+     "2010-06-01",
+     "2010-07-01",
+     "2010-08-01",
+     "2010-09-01",
+     "2010-10-01",
+     "2010-11-01"
+    ],
+    "valid_v1_cuts": [
+     "2011-03-01",
+     "2011-04-01"
+    ],
+    "variant": "no_december"
+   }
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,29 @@
+{
+ "as_of": "2011-12-09",
+ "attribution": "Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D (CC BY 4.0)",
+ "files": {
+  "algorithms.json": {
+   "bytes": 41920,
+   "sha256": "b3dc57c4fb24b80851cb63d8fda48bd275d4a7084d88900dd49bd3db703ebc91"
+  },
+  "label.json": {
+   "bytes": 3722,
+   "sha256": "2c298e68d00a019450563c2aeb7bc952d641420103d26d08695c2baccc546612"
+  },
+  "retention.json": {
+   "bytes": 8109,
+   "sha256": "6c76ff39c74a677d2bb4a5ea54493c787d0544112dc878bcf118e8c48cb5b282"
+  },
+  "summary.json": {
+   "bytes": 6548,
+   "sha256": "17206d690e259b1cf625e4e3def73963505b7c900693c38ccf5590961cf0d077"
+  },
+  "validation_rules.json": {
+   "bytes": 11125,
+   "sha256": "216da324d96e3f02b4b3f1c04151d7ccde98175ca8506085b3a75b6cbe1db3dc"
+  }
+ },
+ "run_key": "20261112T182457477294Z",
+ "schema_version": 1,
+ "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb"
+}

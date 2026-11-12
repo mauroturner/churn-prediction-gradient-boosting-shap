@@ -1,0 +1,565 @@
+{
+  "run_key": "20261112T182457477294Z",
+  "source_sha256": "572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb",
+  "delivery_id": "C2011-12",
+  "rows_delivery": 25526,
+  "blocking_failed": false,
+  "not_evaluated": [],
+  "results": [
+    {
+      "rule_id": "V01",
+      "name_es": "El zip tiene la huella aceptada (o la registrada, en modo local)",
+      "severity": "blocking",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V02",
+      "name_es": "Descarga segura: HTTPS en cada salto, host permitido y topes de redirecciones, bytes y segundos",
+      "severity": "blocking",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V03",
+      "name_es": "El zip tiene exactamente el miembro esperado, sin rutas, dentro del tope y con su huella",
+      "severity": "blocking",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V04",
+      "name_es": "El libro tiene las hojas configuradas y en cada una las 8 columnas exactas, en orden",
+      "severity": "blocking",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V05",
+      "name_es": "Cada columna tiene su tipo: cantidad entera, precio numérico, fecha y hora, factura y código no vacíos, cliente de 5 cifras o vacío",
+      "severity": "blocking",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V06",
+      "name_es": "El solapamiento entre las hojas es el mismo conjunto de filas",
+      "severity": "blocking",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V10",
+      "name_es": "La entrega es la siguiente del plan y su período empieza el día siguiente al fin de la anterior",
+      "severity": "blocking",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V11",
+      "name_es": "La fecha de cada factura está dentro del período de la entrega",
+      "severity": "blocking",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V12",
+      "name_es": "Ninguna línea de la entrega está ya en el almacén ni repetida dentro de ella",
+      "severity": "blocking",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V13",
+      "name_es": "Cada factura tiene un solo cliente y un solo país, también contra lo ya cargado",
+      "severity": "blocking",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V14",
+      "name_es": "La entrega no está vacía y sus filas y su SHA-256 son los del manifiesto",
+      "severity": "blocking",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V20",
+      "name_es": "Línea sin cliente (se aparta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "warn",
+      "rows_affected": 7864,
+      "customers_affected": 0,
+      "value_gbp": 150038.15,
+      "examples": [
+        {
+          "line_id": 20516455,
+          "stock_code": "22169",
+          "quantity": -2,
+          "price": 7.65,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516457,
+          "stock_code": "90197B",
+          "quantity": 1,
+          "price": 4.95,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516458,
+          "stock_code": "90179C",
+          "quantity": 1,
+          "price": 5.95,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516459,
+          "stock_code": "90179B",
+          "quantity": 1,
+          "price": 5.95,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516460,
+          "stock_code": "84347",
+          "quantity": 3,
+          "price": 2.55,
+          "invoice_date": "2011-12-01"
+        }
+      ]
+    },
+    {
+      "rule_id": "V21",
+      "name_es": "Anulación con cliente y producto (se descuenta de la compra que anula)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "warn",
+      "rows_affected": 347,
+      "customers_affected": 130,
+      "value_gbp": 174111.46,
+      "examples": [
+        {
+          "line_id": 20516385,
+          "stock_code": "23245",
+          "quantity": -8,
+          "price": 4.15,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516386,
+          "stock_code": "84947",
+          "quantity": -1,
+          "price": 1.25,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516387,
+          "stock_code": "23374",
+          "quantity": -1,
+          "price": 0.82,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516388,
+          "stock_code": "84945",
+          "quantity": -2,
+          "price": 0.85,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516389,
+          "stock_code": "23485",
+          "quantity": -1,
+          "price": 25.0,
+          "invoice_date": "2011-12-01"
+        }
+      ]
+    },
+    {
+      "rule_id": "V22",
+      "name_es": "Anulación, o resto de una, sin compra que anular con lo conocido en la fecha (se descarta y se cuenta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "latest",
+      "status": "warn",
+      "rows_affected": 1706,
+      "customers_affected": 625,
+      "value_gbp": 34199.09,
+      "examples": [
+        {
+          "line_id": 10000179,
+          "stock_code": "22087",
+          "unmatched_units": 12,
+          "value_gbp": 35.4
+        },
+        {
+          "line_id": 10000180,
+          "stock_code": "85206A",
+          "unmatched_units": 6,
+          "value_gbp": 9.9
+        },
+        {
+          "line_id": 10000181,
+          "stock_code": "21895",
+          "unmatched_units": 4,
+          "value_gbp": 17.0
+        },
+        {
+          "line_id": 10000182,
+          "stock_code": "21896",
+          "unmatched_units": 6,
+          "value_gbp": 12.6
+        },
+        {
+          "line_id": 10000183,
+          "stock_code": "22083",
+          "unmatched_units": 12,
+          "value_gbp": 35.4
+        }
+      ]
+    },
+    {
+      "rule_id": "V23",
+      "name_es": "Cantidad con el signo contrario al de su factura: cero o negativa sin «C», positiva con «C» (se aparta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V24",
+      "name_es": "Precio cero o negativo (se aparta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V25",
+      "name_es": "Código de servicio: envío, comisiones, ajustes, muestras, pruebas, PADS (se aparta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "warn",
+      "rows_affected": 73,
+      "customers_affected": 61,
+      "value_gbp": 6555.31,
+      "examples": [
+        {
+          "line_id": 20516444,
+          "stock_code": "POST",
+          "quantity": 3,
+          "price": 18.0,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516456,
+          "stock_code": "D",
+          "quantity": -1,
+          "price": 28.68,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516485,
+          "stock_code": "C2",
+          "quantity": 1,
+          "price": 50.0,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20516549,
+          "stock_code": "POST",
+          "quantity": 3,
+          "price": 18.0,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20517028,
+          "stock_code": "M",
+          "quantity": 1,
+          "price": 10.0,
+          "invoice_date": "2011-12-01"
+        }
+      ]
+    },
+    {
+      "rule_id": "V26",
+      "name_es": "Vale de regalo (se aparta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V27",
+      "name_es": "Factura «A» de ajuste de deuda incobrable (se aparta)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V28",
+      "name_es": "Línea idéntica a otra anterior de su hoja (se conserva y se marca)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "warn",
+      "rows_affected": 279,
+      "customers_affected": 83,
+      "value_gbp": 1037.75,
+      "examples": [
+        {
+          "line_id": 20517069,
+          "stock_code": "21871",
+          "quantity": 1,
+          "price": 1.65,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20517250,
+          "stock_code": "20727",
+          "quantity": 1,
+          "price": 1.65,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20517252,
+          "stock_code": "22327",
+          "quantity": 1,
+          "price": 2.95,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20517399,
+          "stock_code": "84581",
+          "quantity": 2,
+          "price": 3.75,
+          "invoice_date": "2011-12-01"
+        },
+        {
+          "line_id": 20517425,
+          "stock_code": "22138",
+          "quantity": 2,
+          "price": 4.95,
+          "invoice_date": "2011-12-01"
+        }
+      ]
+    },
+    {
+      "rule_id": "V29",
+      "name_es": "Cantidad de 5.000 unidades o más en una línea (se conserva y se marca)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "warn",
+      "rows_affected": 1,
+      "customers_affected": 1,
+      "value_gbp": 168469.6,
+      "examples": [
+        {
+          "line_id": 20540422,
+          "stock_code": "23843",
+          "quantity": 80995,
+          "price": 2.08,
+          "invoice_date": "2011-12-09"
+        }
+      ]
+    },
+    {
+      "rule_id": "V30",
+      "name_es": "Cliente con más de un país (se usa el de su última línea anterior al corte y se marca)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "V31",
+      "name_es": "País «Unspecified» (va a «Otros» y se marca)",
+      "severity": "warning",
+      "scope": "lines",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "M03",
+      "name_es": "El artefacto del modelo tiene la huella registrada, antes de deserializarlo",
+      "severity": "blocking",
+      "scope": "model",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "M05",
+      "name_es": "La configuración es la sellada (si no, todo lo calculado es posterior al sello)",
+      "severity": "warning",
+      "scope": "model",
+      "aggregation": "latest",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "M07",
+      "name_es": "Ningún bloque usado (entrenamiento, V1, V2, prueba) tiene una sola clase",
+      "severity": "blocking",
+      "scope": "model",
+      "aggregation": "latest",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "M08",
+      "name_es": "El ajuste de BG/NBD converge",
+      "severity": "blocking",
+      "scope": "model",
+      "aggregation": "latest",
+      "status": "pass",
+      "rows_affected": 0,
+      "customers_affected": 0,
+      "value_gbp": 0.0,
+      "examples": []
+    },
+    {
+      "rule_id": "I01",
+      "name_es": "Clientes nuevos en la entrega",
+      "severity": "info",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 653,
+      "customers_affected": 28,
+      "value_gbp": 24114.05,
+      "examples": []
+    },
+    {
+      "rule_id": "I02",
+      "name_es": "Líneas e importe de invitados (sin cliente), en libras y en porcentaje de la entrega",
+      "severity": "info",
+      "scope": "delivery",
+      "aggregation": "per_run",
+      "status": "pass",
+      "rows_affected": 7864,
+      "customers_affected": 0,
+      "value_gbp": 120599.89,
+      "examples": [
+        {
+          "lines": 25526,
+          "positive_value_gbp": 638810.68,
+          "share_of_lines": 0.308078,
+          "share_of_value": 0.188788
+        }
+      ]
+    },
+    {
+      "rule_id": "I03",
+      "name_es": "Copias del solapamiento entre hojas quitadas al leer la fuente",
+      "severity": "info",
+      "scope": "source",
+      "aggregation": "source",
+      "status": "pass",
+      "rows_affected": 22523,
+      "customers_affected": 0,
+      "value_gbp": 500216.85,
+      "examples": [
+        {
+          "overlap_start": "2010-12-01",
+          "overlap_end": "2010-12-09"
+        }
+      ]
+    }
+  ]
+}
