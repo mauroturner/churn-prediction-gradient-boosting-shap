@@ -13,6 +13,7 @@ import os
 # bit (D75). A value the person running the suite set is kept. The product never reads it.
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
+import gc  # noqa: E402
 import shutil  # noqa: E402
 import types  # noqa: E402
 from collections.abc import Callable
@@ -23,6 +24,12 @@ import pytest
 from tests.fixtures.suite_budget import pytest_addoption, pytest_sessionfinish, pytest_sessionstart  # noqa: F401  (the time limit, D34)
 
 pytest_plugins = ["pytester"]
+
+# The session fixtures keep their warehouses' rows, the canonical lines and the histories alive for the whole run, and every full collection
+# walked all of them again: 52 full collections took 3.2 s, and the collector 3.9 s in all, of a session of about 112 s. The thresholds are
+# raised so that it runs far less often; the garbage in cycles is still freed, only later, and the peak working set of the session went from
+# 514 MB to 603 MB (D93). It changes no value and no test.
+gc.set_threshold(200_000, 100, 100)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REAL_ZIP = PROJECT_ROOT / "data" / "raw" / "online_retail_ii.zip"
