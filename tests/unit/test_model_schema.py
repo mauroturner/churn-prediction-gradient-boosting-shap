@@ -33,6 +33,14 @@ def test_baseline_calibrators_are_insert_only(warehouse, statement):
     assert warehouse.execute("SELECT * FROM baseline_calibrators").fetchall() == [("b2_rfm", "v1", "d" * 64)]
 
 
+def test_a_new_model_version_registers_its_own_calibrators_for_the_same_methods(warehouse):
+    warehouse.execute(f"INSERT INTO model_registry VALUES ({', '.join('?' for _ in REGISTRY_ROW)})", ("v2", *REGISTRY_ROW[1:]))
+    warehouse.execute("INSERT INTO baseline_calibrators VALUES ('b2_rfm', 'v2', ?)", ("e" * 64,))
+    with pytest.raises(sqlite3.IntegrityError, match="baseline_calibrators es de solo inserción: ese calibrador ya está registrado"):
+        warehouse.execute("INSERT OR REPLACE INTO baseline_calibrators VALUES ('b2_rfm', 'v2', 'x')")
+    assert warehouse.execute("SELECT * FROM baseline_calibrators ORDER BY model_version").fetchall() == [("b2_rfm", "v1", "d" * 64), ("b2_rfm", "v2", "e" * 64)]
+
+
 @pytest.mark.parametrize("threshold", [-0.01, 1.01])
 def test_a_score_whose_threshold_is_not_a_probability_is_refused(warehouse, threshold):
     with pytest.raises(sqlite3.IntegrityError, match="CHECK"):

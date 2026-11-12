@@ -24,9 +24,10 @@ CREATE TABLE IF NOT EXISTS model_registry (
 );
 
 CREATE TABLE IF NOT EXISTS baseline_calibrators (
-    method TEXT PRIMARY KEY,
+    method TEXT NOT NULL,
     model_version TEXT NOT NULL REFERENCES model_registry (model_version),
-    calibrator_sha256 TEXT NOT NULL
+    calibrator_sha256 TEXT NOT NULL,
+    PRIMARY KEY (method, model_version)
 );
 
 CREATE TABLE IF NOT EXISTS model_scores (
@@ -73,7 +74,7 @@ BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS baseline_calibrators_no_replace BEFORE INSERT ON baseline_calibrators
-WHEN EXISTS (SELECT 1 FROM baseline_calibrators WHERE method = NEW.method)
+WHEN EXISTS (SELECT 1 FROM baseline_calibrators WHERE method = NEW.method AND model_version = NEW.model_version)
 BEGIN
     SELECT RAISE(ABORT, 'baseline_calibrators es de solo inserción: ese calibrador ya está registrado');
 END;
