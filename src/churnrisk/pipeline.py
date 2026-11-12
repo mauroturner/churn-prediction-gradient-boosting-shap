@@ -774,8 +774,12 @@ def replay(cfg: PipelineConfig, until: str | None = None) -> list[list[dict]]:
         raise UsageError(f"--until {until}: no es una entrega del plan ({', '.join(ids)})")
     last = len(plan) - 1 if until is None else ids.index(until)
     runs: list[list[dict]] = []
-    if next_pending(_manifest_path(cfg), plan) is None:
+    pending = next_pending(_manifest_path(cfg), plan)
+    if pending is None:
         return runs
+    if plan.index(pending) > last:   # nothing up to `until` is pending: the option would be ignored in silence (AC33), so it is refused
+        raise UsageError(f"--until {until}: es anterior a la siguiente entrega pendiente, {pending.delivery_id}; no hay nada que correr hasta ella. "
+                         "No se escribió nada.")
     with sole_writer(cfg.paths.interim_dir, "replay", None):
         while (pending := next_pending(_manifest_path(cfg), plan)) is not None and plan.index(pending) <= last:
             runs.append(run_all(cfg))

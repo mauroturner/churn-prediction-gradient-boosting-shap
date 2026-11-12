@@ -14,6 +14,7 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", "8")
 
 import shutil  # noqa: E402
+import types  # noqa: E402
 from collections.abc import Callable
 from pathlib import Path
 
@@ -328,6 +329,59 @@ def quick_history(tmp_path_factory: pytest.TempPathFactory, cut_history, fixture
 
     folder = tmp_path_factory.mktemp("quick_history")
     return build_history(folder, quick_config(folder), fixture_truth.zip_sha256, cut_history)
+
+
+@pytest.fixture(scope="session")
+def pipeline_states(tmp_path_factory: pytest.TempPathFactory, small_zip: Path) -> dict[str, Path]:
+    """``{name: folder}`` of the pipeline (U25) on the small zip with the quick configuration, built once per session: ``launch`` (the launch
+    run ``L1``, run whole and closed), ``validated`` (then run ``M1`` with the next delivery fetched, delivered and validated) and ``cut``
+    (``M1`` loaded and its cuts built). A test copies one. The tests of the pipeline and of the command line share them."""
+    from churnrisk.pipeline import run_all
+    from tests.fixtures.history import local_quick_config
+
+    states: dict[str, Path] = {}
+    base = tmp_path_factory.mktemp("pipeline")
+    for name, tasks in (("launch", None), ("validated", ["fetch_source", "deliver", "validate"]), ("cut", ["load", "build_cuts"])):
+        root = base / name
+        if states:
+            shutil.copytree(list(states.values())[-1], root)
+        cfg = local_quick_config(root, small_zip)
+        if tasks is None:
+            run_all(cfg, run_key="L1")
+        else:
+            run_all(cfg, only=tasks, run_key="M1")
+        states[name] = root
+    return states
+
+
+@pytest.fixture(scope="session")
+def quick_replay(tmp_path_factory: pytest.TempPathFactory, pipeline_states: dict[str, Path], small_zip: Path):
+    """The documented quick replay, once per session: ``python -m churnrisk replay --config config/pipeline.quick.toml --until M2011-08`` (in
+    this process) from an empty folder that is not the project, with ``CHURNRISK_HOME`` on a quick project whose ``data/quick`` holds the
+    ``validated`` state of ``pipeline_states`` (the launch closed, and run ``M1`` holding ``M2011-08``, fetched, delivered and validated): one
+    monthly run, which takes, loads and closes ``M2011-08``. It records the fingerprints of the project, of the working directory and of this
+    repository's project before and after (U26, AC34), and who held the writer lock while the run tracked its cuts (R4-002 of U25). The tests
+    of the command line, of the quick mode and of the pipeline share this one run (D82)."""
+    from churnrisk import lock, pipeline
+    from tests.fixtures.cli_helpers import PROJECT_ROOT as REAL, QUICK_CONFIG, at_home, cli, fingerprint, quick_project
+
+    home = quick_project(tmp_path_factory.mktemp("quick_project") / "clone", small_zip, pipeline_states["validated"])
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    before, real_before = fingerprint(home), fingerprint(REAL)
+    holders, real_track = [], pipeline.track_cuts
+
+    def watched(*args, **kwargs):
+        holders.append((lock.read_holder(home / "data" / "quick" / "interim"), [len(e.records) for e in lock._HELD.values()]))
+        return real_track(*args, **kwargs)
+
+    pipeline.track_cuts = watched
+    try:
+        with at_home(home, elsewhere):
+            result = cli("replay", "--config", QUICK_CONFIG, "--until", "M2011-08")
+    finally:
+        pipeline.track_cuts = real_track
+    return types.SimpleNamespace(home=home, elsewhere=elsewhere, result=result, before=before, after=fingerprint(home), real_before=real_before,
+                                 real_after=fingerprint(REAL), holders=holders)
 
 
 @pytest.fixture(scope="session")

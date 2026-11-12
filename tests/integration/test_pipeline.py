@@ -21,39 +21,15 @@ from churnrisk import lock, pipeline
 from churnrisk.lock import RunRefusedError, RunStateError
 from churnrisk.pipeline import CLOSING_STEPS, TASK_IDS, run_all, run_task
 from churnrisk.validate import read_report, write_report
-from tests.fixtures.history import quick_config
+from tests.fixtures.history import local_quick_config as config_for
 
-LAUNCH, NEXT = "L1", "M1"
+LAUNCH, NEXT = "L1", "M1"   # the run keys of ``pipeline_states`` (tests/conftest.py)
 
 
 @dataclass(frozen=True)
 class Folder:
     root: Path
     cfg: object
-
-
-def config_for(root: Path, zip_path: Path):
-    cfg = quick_config(root)
-    return dataclasses.replace(cfg, source=dataclasses.replace(cfg.source, mode="local", url="", accepted_sha256="", member_sha256="", local_path=zip_path))
-
-
-@pytest.fixture(scope="session")
-def pipeline_states(tmp_path_factory, small_zip):
-    """``{name: folder}`` built once per session: ``launch`` (the launch run ``L1``, run whole and closed), ``validated`` (then run ``M1``
-    with the next delivery fetched, delivered and validated) and ``cut`` (``M1`` loaded and its cuts built). A test copies one (``copy_state``)."""
-    states = {}
-    base = tmp_path_factory.mktemp("pipeline")
-    for name, tasks in (("launch", None), ("validated", ["fetch_source", "deliver", "validate"]), ("cut", ["load", "build_cuts"])):
-        root = base / name
-        if states:
-            shutil.copytree(list(states.values())[-1], root)
-        cfg = config_for(root, small_zip)
-        if tasks is None:
-            run_all(cfg, run_key=LAUNCH)
-        else:
-            run_all(cfg, only=tasks, run_key=NEXT)
-        states[name] = root
-    return states
 
 
 @pytest.fixture
@@ -255,11 +231,12 @@ def test_a_model_task_of_an_older_delivery_is_refused(copy_state):
     assert fingerprint(folder.root) == before
 
 
-def test_a_second_delivery_in_the_same_run_is_refused(copy_state):
+def test_a_second_delivery_in_the_same_run_is_refused(quick_replay, small_zip, tmp_path):
     """A run keeps the delivery it took: once another run loaded and closed that delivery, ``deliver`` again in the first run would take the
-    next one, and is refused."""
-    folder = copy_state("validated")
-    run_all(folder.cfg, run_key="M2")                 # the same pending delivery, taken, loaded and closed by another run
+    next one, and is refused. The other run is the session's quick replay, started from ``validated`` (D82)."""
+    root = tmp_path / "quick"
+    shutil.copytree(Path(quick_replay.home) / "data" / "quick", root)   # M1 holds M2011-08; the replay's run took, loaded and closed it
+    folder = Folder(root, config_for(root, small_zip))
     before = fingerprint(folder.root)
     with pytest.raises(RunRefusedError, match="ya tiene la entrega M2011-08 y la siguiente pendiente es M2011-09"):
         run_task("deliver", NEXT, folder.cfg)
@@ -270,7 +247,7 @@ def test_unknown_tasks_and_incompatible_selections_are_usage_errors_before_writi
     folder = copy_state("launch")
     before = fingerprint(folder.root)
     for call in (lambda: run_task("nope", "X1", folder.cfg), lambda: run_all(folder.cfg, only=["deliver"], start="load"), lambda: run_all(folder.cfg, only=[]),
-                 lambda: pipeline.replay(folder.cfg, until="Z2099-01")):
+                 lambda: pipeline.replay(folder.cfg, until="Z2099-01"), lambda: pipeline.replay(folder.cfg, until="L2011-07")):
         with pytest.raises(pipeline.UsageError):
             call()
     assert fingerprint(folder.root) == before
@@ -357,25 +334,18 @@ def test_the_run_table_s_own_transaction_works_on_the_autocommit_connection_the_
         other.close()
 
 
-def test_replay_holds_the_lock_and_each_of_its_runs_takes_it_again_in_the_same_process(copy_state, monkeypatch):
+def test_replay_holds_the_lock_and_each_of_its_runs_takes_it_again_in_the_same_process(quick_replay):
     """R4-002: ``replay`` holds the writer lock for its loop and ``run_all`` takes it again for each run (the nested take of U24, by the same
-    thread): the run goes through every task, the file says the inner run while it works, and nothing is left behind."""
-    from churnrisk.deliveries import delivery_plan
-
-    folder = copy_state("launch")
-    plan = [s.delivery_id for s in delivery_plan(folder.cfg)]
-    seen = []
-    real_track = pipeline.track_cuts
-
-    def watched(*args, **kwargs):
-        seen.append((lock.read_holder(folder.cfg.paths.interim_dir), [len(e.records) for e in lock._HELD.values()]))
-        return real_track(*args, **kwargs)
-
-    monkeypatch.setattr(pipeline, "track_cuts", watched)
-    runs = pipeline.replay(folder.cfg, until=plan[1])
-    assert len(runs) == 1 and [o["task"] for o in runs[0]] == list(TASK_IDS) and runs[0][-1]["result"]["run_status"] == "ok"
-    holder, depth = seen[0]
+    thread): the run goes through every task, the file says the inner run while it works, and nothing is left behind. The replay is the
+    session's quick replay, through the command line (D82)."""
+    assert quick_replay.result.code == 0, quick_replay.result.err
+    lines = [line.split()[0] for line in quick_replay.result.out.splitlines() if line.split() and line.split()[0] in TASK_IDS]
+    assert lines == list(TASK_IDS) and quick_replay.result.out.rstrip().endswith("1 corrida")
+    [(holder, depth)] = quick_replay.holders
     assert holder["pid"] == os.getpid() and holder["command"] == "run" and depth == [2], "replay's record and run_all's, in one entry"
-    manifest = json.loads((Path(folder.cfg.paths.raw_dir) / "deliveries" / "manifest.json").read_text(encoding="utf-8"))
-    assert [(e["delivery_id"], e["status"]) for e in manifest["entries"]] == [(plan[0], "loaded"), (plan[1], "loaded")]
-    assert lock.read_holder(folder.cfg.paths.interim_dir) is None and lock._HELD == {}
+    quick = Path(quick_replay.home) / "data" / "quick"
+    manifest = json.loads((quick / "raw" / "deliveries" / "manifest.json").read_text(encoding="utf-8"))
+    loaded = [e for e in manifest["entries"] if e["status"] == "loaded"]
+    assert [e["delivery_id"] for e in loaded] == ["L2011-07", "M2011-08"] and loaded[1]["run_key"] not in ("L1", "M1")
+    assert json.loads((quick / "interim" / "runs" / f"{loaded[1]['run_key']}.json").read_text(encoding="utf-8"))["status"] == "ok"
+    assert lock.read_holder(quick / "interim") is None and lock._HELD == {}

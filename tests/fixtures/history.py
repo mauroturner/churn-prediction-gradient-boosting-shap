@@ -39,6 +39,14 @@ def _quick_base() -> PipelineConfig:
     return load_config(PROJECT_ROOT / "config" / "pipeline.quick.toml")
 
 
+def local_quick_config(folder: Path, zip_path: Path) -> PipelineConfig:
+    """``quick_config(folder)`` reading the local zip `zip_path`: the configuration of ``pipeline_states`` (tests/conftest.py). Its paths are
+    those of ``config/pipeline.quick.toml`` with ``data/quick`` replaced by `folder`, so a copy of a state under ``<project>/data/quick`` is a
+    quick project for the command line (``CHURNRISK_HOME``)."""
+    cfg = quick_config(folder)
+    return dataclasses.replace(cfg, source=dataclasses.replace(cfg.source, mode="local", url="", accepted_sha256="", member_sha256="", local_path=zip_path))
+
+
 def quick_config(folder: Path, **sections) -> PipelineConfig:
     """The quick configuration with every path under `folder`; `sections` replace whole sections (``costs=...``)."""
     base = _quick_base()
