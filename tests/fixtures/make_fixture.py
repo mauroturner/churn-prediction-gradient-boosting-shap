@@ -70,6 +70,14 @@ REAL_ID_RANGE = (12346, 18287)
 GUEST_SHARE = 0.22
 QUANTITIES = (1, 2, 3, 4, 6, 8, 12, 24)
 QUANTITY_WEIGHTS = (0.20, 0.14, 0.10, 0.08, 0.16, 0.08, 0.18, 0.06)
+_QUANTITY_CDF = np.cumsum(np.asarray(QUANTITY_WEIGHTS, dtype="float64"))
+_QUANTITY_CDF /= _QUANTITY_CDF[-1]
+
+
+def _quantity(rng: np.random.Generator) -> int:
+    """``rng.choice(QUANTITIES, p=QUANTITY_WEIGHTS)`` as numpy draws it (one uniform against the normalised cumulative weights), without
+    checking the weights again on every line: the same draws and the same values (D70)."""
+    return QUANTITIES[int(_QUANTITY_CDF.searchsorted(rng.random(), side="right"))]
 MAX_UNIT_PRICE = 40.0
 # 88 % of the synthetic customers are from the United Kingdom; Norway and Japan get so few that they go to «Otros» (D27)
 COUNTRIES = ("Germany", "France", "EIRE", "Spain", "Netherlands", "Belgium", "Norway", "Japan")
@@ -217,7 +225,7 @@ def _customer_invoices(customer: SimCustomer, catalogue: list[dict], rng: np.ran
         n_lines = int(min(5, 1 + rng.poisson(1.3)))
         lines = []
         for share, index in zip(rng.dirichlet(np.ones(n_lines)), rng.choice(len(catalogue), size=n_lines, replace=False), strict=True):
-            qty = max(int(rng.choice(QUANTITIES, p=QUANTITY_WEIGHTS)), int(np.ceil(spend * share / MAX_UNIT_PRICE)))
+            qty = max(_quantity(rng), int(np.ceil(spend * share / MAX_UNIT_PRICE)))
             item = catalogue[int(index)]
             lines.append(_line(item["code"], item["desc"], qty, max(0.10, spend * float(share) / qty), ts))
         out.append(_Invoice(ts, customer.customer_id, customer.country, "", lines))
@@ -508,7 +516,7 @@ def make_fixture(path: Path, n_customers: int = 1500, seed: int = 0, signal: str
         lines = []
         for i in rng.choice(len(catalogue), size=int(min(4, 1 + rng.poisson(1.2))), replace=False):
             item = catalogue[int(i)]
-            lines.append(_line(item["code"], item["desc"], int(rng.choice(QUANTITIES, p=QUANTITY_WEIGHTS)), item["price"] * float(rng.uniform(0.9, 1.1)), ts))
+            lines.append(_line(item["code"], item["desc"], _quantity(rng), item["price"] * float(rng.uniform(0.9, 1.1)), ts))
         invoices.append(_Invoice(ts, None, "United Kingdom" if rng.random() < 0.85 else str(rng.choice(COUNTRIES)), "", lines))
         guest_lines += len(lines)
 

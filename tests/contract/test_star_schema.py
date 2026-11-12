@@ -227,20 +227,30 @@ def violations(conn, params) -> dict[str, int]:
     return {c.check_id: c.violations for c in run_checks(conn, "model", params)}
 
 
-@pytest.mark.parametrize("relationship", MODEL.relationships, ids=lambda r: r.rel_id)
-def test_every_foreign_key_check_catches_one_orphan_of_its_relationship(star_export, tmp_path, relationship):
-    """R3-coverage-fk-checks: one row of the fact whose key is not in its dimension makes that relationship's control fail, and only it among
-    the foreign keys."""
+@pytest.fixture(scope="module")
+def checks_db(star_export, tmp_path_factory):
+    """One copy of the star model's warehouse for the tests that break a mart and run the controls: each breaks it inside a transaction and
+    rolls it back, so every test starts from the exported marts (a copy per case cost a second for nothing)."""
     cfg, _out, _private, _paths, _meta, warehouse = star_export
-    path = tmp_path / "w.sqlite"
+    path = tmp_path_factory.mktemp("checks") / "w.sqlite"
     shutil.copy2(warehouse, path)
     conn = connect(path)
+    params = model_check_params(cfg, conn)
+    yield conn, params
+    conn.close()
+
+
+@pytest.mark.parametrize("relationship", MODEL.relationships, ids=lambda r: r.rel_id)
+def test_every_foreign_key_check_catches_one_orphan_of_its_relationship(checks_db, relationship):
+    """R3-coverage-fk-checks: one row of the fact whose key is not in its dimension makes that relationship's control fail, and only it among
+    the foreign keys."""
+    conn, params = checks_db
+    assert {k: v for k, v in violations(conn, params).items() if v} == {}
+    dtype = next(c.dtype for c in MODEL.table(relationship.fact_table).columns if c.name == relationship.fact_column)
+    orphan = -7 if dtype.startswith("int") else "orphan"
+    fact = f"star_{relationship.fact_table}"
+    conn.execute("BEGIN")
     try:
-        params = model_check_params(cfg, conn)
-        assert {k: v for k, v in violations(conn, params).items() if v} == {}
-        dtype = next(c.dtype for c in MODEL.table(relationship.fact_table).columns if c.name == relationship.fact_column)
-        orphan = -7 if dtype.startswith("int") else "orphan"
-        fact = f"star_{relationship.fact_table}"
         if conn.execute(f"SELECT COUNT(*) FROM {fact}").fetchone()[0]:      # a real row with only its key changed: its other keys stay valid
             conn.execute(f"CREATE TEMP TABLE orphan AS SELECT * FROM {fact} LIMIT 1")
             conn.execute(f"UPDATE orphan SET {relationship.fact_column} = ?", (orphan,))
@@ -249,28 +259,26 @@ def test_every_foreign_key_check_catches_one_orphan_of_its_relationship(star_exp
             conn.execute(f"INSERT INTO {fact} ({relationship.fact_column}) VALUES (?)", (orphan,))
         failing = {k for k, v in violations(conn, params).items() if v and k.startswith("chk_fk_")}
     finally:
-        conn.close()
+        conn.execute("ROLLBACK")
     assert failing == {f"chk_fk_{relationship.rel_id.lower()}_{relationship.fact_table}_{relationship.dim_table}"}
 
 
-def test_the_key_check_catches_a_repeated_key_in_every_table_that_has_rows(star_export, tmp_path):
+def test_the_key_check_catches_a_repeated_key_in_every_table_that_has_rows(checks_db):
     """R3-coverage-star-keys: a copy of one row of any table of the star model repeats its key and fails ``chk_star_keys_unique``, naming the
     table."""
-    cfg, _out, _private, _paths, _meta, warehouse = star_export
+    from churnrisk.warehouse import run_checks
+
+    conn, params = checks_db
     tested = []
     for table in MODEL.tables:
-        path = tmp_path / f"{table.name}.sqlite"
-        shutil.copy2(warehouse, path)
-        conn = connect(path)
+        if conn.execute(f"SELECT COUNT(*) FROM star_{table.name}").fetchone()[0] == 0:
+            continue
+        conn.execute("BEGIN")
         try:
-            if conn.execute(f"SELECT COUNT(*) FROM star_{table.name}").fetchone()[0] == 0:
-                continue
             conn.execute(f"INSERT INTO star_{table.name} SELECT * FROM star_{table.name} LIMIT 1")
-            from churnrisk.warehouse import run_checks
-
-            check = next(c for c in run_checks(conn, "model", model_check_params(cfg, conn)) if c.check_id == "chk_star_keys_unique")
+            check = next(c for c in run_checks(conn, "model", params) if c.check_id == "chk_star_keys_unique")
         finally:
-            conn.close()
+            conn.execute("ROLLBACK")
         assert check.violations >= 1 and table.name in {row[0] for row in check.sample}, table.name
         tested.append(table.name)
     assert len(tested) >= len(MODEL.tables) - 2, f"only {tested} have rows"

@@ -725,3 +725,13 @@ Estados: **vigente**, **pendiente del dueño**, **reemplazada por Dxx**.
 - **Afecta**: `src/churnrisk/dashboard/render.py`, `dashboard/svg.py`; `tests/unit/test_render.py`; `tests/conftest.py` (`star_files`); `tests/contract/test_star_schema.py` (`star_export`); U25 (la tarea `render_dashboard` y el cierre que reescribe el HTML), U29 (el HTML real); AC28; RF26; RNF12; D26, D68, D71.
 - **Quién**: agente de programación (Opus), en U22.
 - **Estado**: vigente.
+
+## D73 La suite rápida con los archivos del sitio: los cortes de las cantidades del accesorio sin revisar las proporciones y los controles del modelo estrella en una sola copia
+
+- **Contexto**: con las pruebas de U23 en el árbol la suite rápida midió 694 pruebas en 101,02 s y 100,38 s en reposo, sobre el presupuesto de trabajo de 100 s (D34); U23 suma unos 2 s. Dentro de cada accesorio del tamaño estándar, `rng.choice(QUANTITIES, p=QUANTITY_WEIGHTS)` revisaba las proporciones en cada una de unas 25.000 líneas, y las pruebas de U20 que rompen un mart copiaban el almacén de 17 MB una vez por relación y por tabla (45 copias).
+- **Opciones**: (a) limitar los hilos de OpenMP a 8 (98,05 s en una medición: dentro del ruido y atado a esta máquina, D70); (b) sacar la misma cantidad con el mismo sorteo que hace numpy, sin revisar las proporciones cada vez, y romper los marts dentro de una transacción que se deshace sobre una sola copia.
+- **Decisión**: (b). `_quantity(rng)` toma un uniforme y lo busca en las proporciones acumuladas y normalizadas, como `Generator.choice` con `p`; `checks_db` es una sola copia del almacén por módulo y cada prueba rompe un mart entre `BEGIN` y `ROLLBACK`. Ninguna prueba ni ninguna afirmación se quitó.
+- **Motivo**: los seis accesorios medidos dan la misma verdad y los mismos bytes del zip que antes de D70; el estándar pasó de 1,95 s a 1,52 s y los de señal de 1,88 s y 2,04 s a 1,54 s y 1,60 s. Las dos mutaciones de los controles de U20 (R18 que nunca se dispara y la clave de `dim_cut` sin control) se vuelven a detectar. La suite rápida midió 694 pruebas en 98,80 s después, con el navegador abierto.
+- **Afecta**: `tests/fixtures/make_fixture.py` (`_quantity`); `tests/contract/test_star_schema.py` (`checks_db`); D34, D63, D70.
+- **Quién**: agente de programación (Opus), antes del commit de U23.
+- **Estado**: vigente.
