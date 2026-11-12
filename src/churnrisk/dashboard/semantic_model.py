@@ -416,7 +416,7 @@ PAGES: tuple[Page, ...] = (
                ("fact_cost_sensitivity[break_even]", "fact_cost_sensitivity[nb_per_1000]", "dim_method[method_es]"), 6, 2, 6, 7),
     )),
     Page("Seguimiento", (
-        Visual("slicer", "Fecha de cálculo", ("dim_as_of[as_of_label]",), 0, 0, 4, 1),
+        Visual("slicer", "Fecha de cálculo", ("dim_date[date]",), 0, 0, 4, 1),
         Visual("slicer", "Corte", ("dim_cut[cut_date]",), 4, 0, 4, 1),
         Visual("card", "Volvieron (seguimiento)", ("[Volvieron (seguimiento)]",), 8, 0, 4, 1),
         Visual("table", "Seguimiento de cada corte por fecha de cálculo", _TRACKING, 0, 1, 12, 5),

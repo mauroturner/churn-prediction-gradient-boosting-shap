@@ -207,6 +207,41 @@ def test_each_page_has_the_visuals_of_the_plan():
     assert visual("Calidad y corridas", "Reglas de validación").fields[:2] == ("fact_validation[rule_id]", "fact_validation[name_es]")
 
 
+def _tables_of(visual: Visual) -> set[str]:
+    """The tables a visual reads: its columns' and, through the DAX of its measures (and the measures they name), the measures' columns'."""
+    tables, pending = set(), list(visual.fields)
+    while pending:
+        field = pending.pop()
+        if field.startswith("["):
+            dax = MODEL.measure(field[1:-1]).dax
+            tables |= {t for t, _ in dax_column_refs(dax)}
+            pending += [f"[{m}]" for m in dax_measure_refs(dax)]
+        elif not field.startswith("'"):
+            tables.add(field.split("[")[0])
+    return tables
+
+
+def _filtered_by(table: str) -> set[str]:
+    """The tables a selection on `table` filters: itself and, one to many and single direction, the facts its relationships name."""
+    return {table} | {r.fact_table for r in MODEL.relationships if r.dim_table == table}
+
+
+def test_every_slicer_filters_a_visual_of_its_page_through_a_relationship():
+    """R3-dim-as-of-dead-slicer: a slicer on a table with no path to the page's tables selects without filtering anything (silently). The what-if
+    parameters are slicers of their own tables, read by the measures (D71), and are not part of this check."""
+    for page in PAGES:
+        for slicer in (v for v in page.visuals if v.kind == "slicer" and not v.fields[0].startswith("'")):
+            reached = _filtered_by(slicer.fields[0].split("[")[0])
+            assert any(reached & _tables_of(v) for v in page.visuals if v.kind != "slicer"), (page.name_es, slicer.title_es, slicer.fields[0])
+
+
+def test_the_slicers_of_the_tracking_page_filter_every_one_of_its_visuals():
+    page = next(p for p in PAGES if p.name_es == "Seguimiento")
+    for slicer in (v for v in page.visuals if v.kind == "slicer"):
+        for v in (v for v in page.visuals if v.kind != "slicer"):
+            assert _filtered_by(slicer.fields[0].split("[")[0]) & _tables_of(v), (slicer.title_es, v.title_es)
+
+
 def test_only_the_list_of_the_first_page_shows_the_customer_column():
     """D26: the customer number is a column of the private fact only, and the one visual that shows it is the list, which the HTML masks (U22)."""
     showing = [(p.name_es, v.title_es) for p in PAGES for v in p.visuals for f in v.fields if "customer_id" in f]
