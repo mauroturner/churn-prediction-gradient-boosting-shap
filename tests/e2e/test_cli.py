@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -260,6 +261,21 @@ def test_a_replay_with_nothing_pending_exits_0_without_the_lock(project, monkeyp
     before = fingerprint(home)
     result = cli("replay", *Q)
     assert result.code == 0 and "No hay entregas pendientes" in result.out and taken == [] and fingerprint(home) == before
+
+
+def test_figures_draws_the_site_files_of_the_configuration_into_its_figures_folder(project):
+    """``figures`` reads the site files of the configuration's run (verified against their manifest) and writes the seven figures to its
+    ``figures_dir``; over a folder that is not one export it exits 2 and writes nothing (U28)."""
+    from churnrisk.figures import FIGURE_NAMES
+
+    home = project("launch")
+    result = cli("figures", *Q)
+    ok(result)
+    assert sorted(p.name for p in (quick(home) / "figures").iterdir()) == sorted(FIGURE_NAMES) and result.out.count("escribí") == len(FIGURE_NAMES)
+    shutil.rmtree(quick(home) / "figures")
+    (quick(home) / "outputs" / "site" / "label.json").write_text("{}\n", encoding="utf-8")
+    refused = cli("figures", *Q)
+    assert refused.code == 2 and "label.json" in refused.err and not (quick(home) / "figures").exists()
 
 
 def test_python_m_churnrisk_help_runs_from_another_directory(tmp_path):

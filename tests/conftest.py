@@ -407,6 +407,22 @@ def star_files(tmp_path_factory: pytest.TempPathFactory, quick_history):
 
 
 @pytest.fixture(scope="session")
+def site_files(tmp_path_factory: pytest.TempPathFactory, star_files) -> Path:
+    """The five site files of the quick history's last run and their manifest, exported once per session (plan 24.1): the figures read them."""
+    from churnrisk.site_export import export_site
+    from churnrisk.warehouse import connect
+
+    cfg, _out, _private, _paths, meta, warehouse = star_files
+    folder = tmp_path_factory.mktemp("site_files") / "site"
+    conn = connect(warehouse)
+    try:
+        export_site(conn, folder, meta, cfg)
+    finally:
+        conn.close()
+    return folder
+
+
+@pytest.fixture(scope="session")
 def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
     """``(fetch result, frame, report)``: the real canonical lines, built once per session from a copy of the pinned zip in a folder of the
     session's own (mark real_data only; the zip is never downloaded again). Reading the real workbook takes about 40 s, so every real_data

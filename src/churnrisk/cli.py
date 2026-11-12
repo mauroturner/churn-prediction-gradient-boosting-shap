@@ -76,6 +76,7 @@ def build_parser(task_ids: tuple[str, ...] | None = None) -> argparse.ArgumentPa
     fixture.add_argument("--signal", choices=SIGNALS, default="none",
                          help="irregular_gaps: la baja depende de lo irregular de las compras (control positivo); rfm_only: solo de RFM (control negativo)")
 
+    commands.add_parser("figures", parents=[common], help="dibuja las siete figuras de la documentación desde los archivos del sitio verificados de la última corrida")
     commands.add_parser("docs-sync", parents=[common], help="copia el resumen de resultados (reports/evaluation_summary.md) en el bloque de resultados del README")
     return parser
 
@@ -162,9 +163,23 @@ def _docs_sync(cfg) -> int:
     return EXIT_OK
 
 
+def _figures(cfg) -> int:
+    from churnrisk.figures import make_figures   # matplotlib: only the command that draws pays for it
+
+    try:
+        paths = make_figures(cfg.paths.site_dir, cfg.paths.figures_dir)
+    except FileNotFoundError as error:   # no site files, or a folder that is not one export (SiteSetError): nothing was written
+        raise _UsageError(f"{error}. No se escribió ninguna figura.") from error
+    for path in paths:
+        _say(f"escribí {path}")
+    return EXIT_OK
+
+
 def _execute(args: argparse.Namespace, cfg, pipeline) -> int:
     if args.command == "docs-sync":
         return _docs_sync(cfg)
+    if args.command == "figures":
+        return _figures(cfg)
     if args.command == "task":
         result = pipeline.run_task(args.task, args.run_key, cfg)
         _say(f"{args.task}: {_brief(result)}")
