@@ -16,9 +16,10 @@ from typing import Any
 import pandas as pd
 import pytest
 
+from churnrisk.export import build_powerbi_marts
 from churnrisk.site_export import MANIFEST_FILE, SITE_FILES, SiteExportError, SiteSetError, export_site, export_summary, protect, read_site, verify_site
 from churnrisk.validate import RULES
-from churnrisk.warehouse import connect
+from churnrisk.warehouse import connect, run_sql_file
 
 ENVELOPE = {"schema_version": int, "run_key": str, "as_of": str, "source_sha256": str, "attribution": str}
 SCHEMA: dict[str, dict[str, Any]] = {
@@ -297,6 +298,126 @@ def test_protect_gives_the_suppression_of_the_marts_on_their_own_counts(star_fil
         assert [c["suppressed"] for c in mine] == [bool(theirs[b]) for b in part["band_key"]], cut
         checked += sum(c["suppressed"] for c in mine)
     assert checked > 0, "the quick history hides cells: the comparison is not vacuous"
+
+
+CALIBRATION_RAW = "SELECT scope, method, seal_state, bin, rows FROM eval_calibration ORDER BY scope, method, seal_state, bin"
+REASON_RAW = ("SELECT r.cut_date, r.feature, COUNT(*) AS customers, SUM(s.is_contact) AS contacted FROM score_reasons AS r "
+              "JOIN model_scores AS s ON s.cut_date = r.cut_date AND s.customer_id = r.customer_id GROUP BY r.cut_date, r.feature ORDER BY r.cut_date, r.feature")
+MARTS = Path(__file__).resolve().parents[2] / "sql" / "marts" / "powerbi"
+
+
+def _min_counts(part: pd.DataFrame) -> list[int]:
+    return [min(int(a), int(b)) for a, b in zip(part["customers"], part["contacted"], strict=True)]
+
+
+def _marts_with(star_files, tmp_path, raw_sql: str, table: str, minimum_of) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    """The raw counts and the mart `table` rebuilt on a copy of the star warehouse with the minimum that `minimum_of` picks from the counts."""
+    cfg, _out_dir, _private, _paths, meta, warehouse = star_files
+    copy = tmp_path / "warehouse.sqlite"
+    shutil.copy2(warehouse, copy)
+    conn = connect(copy)
+    try:
+        raw = pd.read_sql_query(raw_sql, conn)
+        minimum = minimum_of(raw, cfg)
+        build_powerbi_marts(conn, dataclasses.replace(cfg, site=dataclasses.replace(cfg.site, min_cell_customers=minimum)), meta.source_sha256, meta.as_of)
+        mart = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+    finally:
+        conn.close()
+    return raw, mart, minimum
+
+
+def _calibration_hidden(raw: pd.DataFrame, mart: pd.DataFrame, minimum: int) -> dict[tuple, set[int]]:
+    """The bins the mart empties, per breakdown, after checking they are the ones ``protect`` hides on the raw rows and that a shown bin keeps its rows."""
+    mart = mart.set_index(["scope", "method_key", "seal_state", "point"])
+    out = {}
+    for key, part in raw.groupby(["scope", "method", "seal_state"]):
+        mine = protect([{"bin": int(b)} for b in part["bin"]], list(part["rows"]), ("bin",), minimum)
+        for cell, rows in zip(mine, part["rows"], strict=True):
+            theirs = mart.loc[(*key, cell["bin"])]
+            if cell["suppressed"]:
+                assert all(pd.isna(theirs[c]) for c in ("p_mean", "observed", "rows")), (key, cell["bin"])
+            else:
+                assert int(theirs["rows"]) == int(rows), (key, cell["bin"])
+        out[key] = {c["bin"] for c in mine if c["suppressed"]}
+    return out
+
+
+def _reason_hidden(raw: pd.DataFrame, mart: pd.DataFrame, minimum: int) -> dict[str, set[str]]:
+    """The same for the reasons of each cut: hidden whole, the count of a cell being the smaller of its customers and its contacts."""
+    mart = mart.set_index(["cut_key", "reason_key"])
+    out = {}
+    for cut, part in raw.groupby("cut_date"):
+        key = int(cut.replace("-", ""))
+        mine = protect([{"reason": f} for f in part["feature"]], _min_counts(part), ("reason",), minimum)
+        for cell, customers, contacted in zip(mine, part["customers"], part["contacted"], strict=True):
+            theirs = mart.loc[(key, cell["reason"])]
+            if cell["suppressed"]:
+                assert all(pd.isna(theirs[c]) for c in ("customers_top3", "contacted_top3", "mean_shap")), (cut, cell["reason"])
+            else:
+                assert (int(theirs["customers_top3"]), int(theirs["contacted_top3"])) == (int(customers), int(contacted)), (cut, cell["reason"])
+        out[cut] = {c["reason"] for c in mine if c["suppressed"]}
+    return out
+
+
+def test_the_calibration_mart_hides_exactly_the_bins_protect_hides(star_files, tmp_path):
+    """D86: with the configured minimum, a bin of fewer rows than the minimum (an empty one included) has its mean risk, its observed rate and its
+    rows empty in the mart, as the site's ``protect`` hides it."""
+    raw, mart, minimum = _marts_with(star_files, tmp_path, CALIBRATION_RAW, "star_fact_calibration", lambda _raw, cfg: cfg.site.min_cell_customers)
+    assert sum(len(h) for h in _calibration_hidden(raw, mart, minimum).values()) > 0, "the quick history has bins to hide: not vacuous"
+
+
+def test_the_calibration_mart_hides_a_second_bin_where_a_breakdown_would_hide_one(tmp_path):
+    """D86: every breakdown (scope, method and seal state) publishes its total rows and its churn rate, so where only one bin is under the minimum
+    its smallest shown bin (the first on a tie) is emptied too; with two under it, or none, nothing more. A hand case run through the mart's SQL."""
+    rows = {("test", "model", "sealed"): [50, 3, 40, 20], ("test", "b2_rfm", "sealed"): [50, 0, 5, 30],
+            ("valid_v2", "model", "sealed"): [12, 3, 12, 40], ("valid_v2", "b2_rfm", "sealed"): [10, 20, 30, 40]}
+    conn = sqlite3.connect(tmp_path / "hand.sqlite")
+    try:
+        conn.execute("CREATE TABLE eval_calibration (scope TEXT, method TEXT, bin INTEGER, p_mean REAL, observed REAL, rows INTEGER, seal_state TEXT)")
+        conn.executemany("INSERT INTO eval_calibration VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         [(s, m, b + 1, (b + 0.5) / 4, 0.5, n, st) for (s, m, st), counts in rows.items() for b, n in enumerate(counts)])
+        run_sql_file(conn, MARTS / "mart_18_fact_calibration.sql", {"min_cell_customers": 10})
+        mart = pd.read_sql_query("SELECT * FROM star_fact_calibration", conn)
+        raw = pd.read_sql_query(CALIBRATION_RAW, conn)
+    finally:
+        conn.close()
+    assert _calibration_hidden(raw, mart, 10) == {("test", "model", "sealed"): {2, 4}, ("test", "b2_rfm", "sealed"): {2, 3},
+                                                  ("valid_v2", "model", "sealed"): {1, 2}, ("valid_v2", "b2_rfm", "sealed"): set()}
+
+
+def test_the_reason_mart_hides_exactly_the_cells_protect_hides(star_files, tmp_path):
+    """D86: a reason of a cut held by fewer customers than the minimum, or by fewer contacted customers (the site's «motivos entre los
+    contactados» hides those), has all three values empty in the mart, as ``protect`` hides it. Every reason of the quick history has at least 10
+    customers and 10 contacts, so the marts are rebuilt with the minimum at the lower quartile of the counts."""
+    def quartile(raw, _cfg):
+        counts = _min_counts(raw)
+        return sorted(counts)[len(counts) // 4] + 1
+
+    raw, mart, minimum = _marts_with(star_files, tmp_path, REASON_RAW, "star_fact_reason_summary", quartile)
+    assert sum(len(h) for h in _reason_hidden(raw, mart, minimum).values()) > 0, "the comparison is not vacuous"
+
+
+def test_the_reason_mart_hides_a_second_reason_where_a_cut_would_hide_one(tmp_path):
+    """D86: every customer has the same number of reasons, so a cut's sums are published totals; where only one reason is under the minimum (by
+    its customers or by its contacts), the shown reason with the smallest of its two counts is emptied too. A hand case through the mart's SQL."""
+    cells = {("2011-08-01", "rec_days"): (30, 20), ("2011-08-01", "freq_365"): (30, 4), ("2011-08-01", "mon_365"): (25, 15),
+             ("2011-09-01", "rec_days"): (8, 8), ("2011-09-01", "freq_365"): (6, 0), ("2011-09-01", "mon_365"): (40, 40)}
+    conn = sqlite3.connect(tmp_path / "hand.sqlite")
+    try:
+        conn.execute("CREATE TABLE score_reasons (cut_date TEXT, customer_id INTEGER, feature TEXT, shap_value REAL)")
+        conn.execute("CREATE TABLE model_scores (cut_date TEXT, customer_id INTEGER, is_contact INTEGER)")
+        customer = 90001
+        for (cut, feature), (customers, contacted) in cells.items():
+            for i in range(customers):
+                conn.execute("INSERT INTO score_reasons VALUES (?, ?, ?, 0.1)", (cut, customer, feature))
+                conn.execute("INSERT INTO model_scores VALUES (?, ?, ?)", (cut, customer, int(i < contacted)))
+                customer += 1
+        run_sql_file(conn, MARTS / "mart_12_fact_reason_summary.sql", {"min_cell_customers": 10})
+        mart = pd.read_sql_query("SELECT * FROM star_fact_reason_summary", conn)
+        raw = pd.read_sql_query(REASON_RAW, conn)
+    finally:
+        conn.close()
+    assert _reason_hidden(raw, mart, 10) == {"2011-08-01": {"freq_365", "mon_365"}, "2011-09-01": {"rec_days", "freq_365"}}
 
 
 def test_a_test_evaluated_with_another_configuration_is_not_published_as_the_result(star_files, tmp_path):

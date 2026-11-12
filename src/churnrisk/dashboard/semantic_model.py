@@ -221,7 +221,7 @@ FACT_REASON_SUMMARY = Table("fact_reason_summary", "fact", ("cut_key", "reason_k
     CUT_KEY, _c("reason_key", "string", "Variable."), _c("customers_top3", "int64", "Clientes con la variable entre sus motivos.", "clientes"),
     _c("contacted_top3", "int64", "Contactados con la variable entre sus motivos.", "clientes"),
     _c("mean_shap", "float64", "Contribución media al log-odds de esos clientes.", "log-odds"),
-), "Los motivos por corte (nulos con menos del mínimo de clientes).")
+), "Los motivos por corte (nulos con menos del mínimo de clientes o de contactados, y uno más donde se ocultaría uno solo).")
 FACT_TRACKING = Table("fact_tracking", "fact", ("as_of_key", "cut_key"), (
     _c("as_of_key", "int32", "Fecha de cálculo, como AAAAMMDD."), CUT_KEY, _c("scored", "int64", "Puntuados.", "clientes"), _c("contacted", "int64", "Contactados.", "clientes"),
     _c("returned", "int64", "Volvieron a comprar hasta la fecha de cálculo.", "clientes"), _c("window_closed", "bool", "La ventana cerró."),
@@ -253,7 +253,7 @@ FACT_ROC = Table("fact_roc", "fact", ("scope", "method_key", "point", "seal_stat
 FACT_CALIBRATION = Table("fact_calibration", "fact", ("scope", "method_key", "point", "seal_state"), (
     SCOPE, METHOD_KEY, _c("point", "int32", "Intervalo de probabilidad (1-10)."), _c("p_mean", "float64", "Riesgo medio del intervalo.", "probabilidad"),
     _c("observed", "float64", "Tasa de bajas observada.", "proporción"), _c("rows", "int64", "Filas del intervalo.", "filas"), SEAL_STATE,
-), "La calibración por intervalo.")
+), "La calibración por intervalo (nula con menos del mínimo de filas, y un intervalo más donde se ocultaría uno solo).")
 FACT_COST_SENSITIVITY = Table("fact_cost_sensitivity", "fact", ("scope", "break_even", "method_key", "seal_state"), (
     SCOPE, _c("break_even", "float64", "Punto de equilibrio supuesto.", "probabilidad"), METHOD_KEY, _c("threshold", "float64", "Umbral elegido en V2.", "probabilidad"),
     _c("nb_per_1000", "float64", "Beneficio neto por cada 1.000 clientes.", U), _c("contact_share", "float64", "Proporción contactada.", "proporción"), SEAL_STATE,
