@@ -38,7 +38,7 @@ from churnrisk.schema import FEATURE_COLUMNS
 from churnrisk.sensitivity import VARIANTS_ES
 from churnrisk.split import BLOCKS, BLOCKS_ES
 from churnrisk.tracking import customer_returns
-from churnrisk.warehouse import _fail_on, apply_schema, rebuild_marts, run_checks
+from churnrisk.warehouse import SQL_DIR, _fail_on, apply_schema, rebuild_marts, run_checks, run_sql_file
 
 logger = logging.getLogger(__name__)
 
@@ -227,3 +227,34 @@ def export_star_schema(conn: sqlite3.Connection, out_dir: Path, private_dir: Pat
     logger.info("star model at %s: %d versioned files in %s and %d private in %s", meta.as_of, sum(not t.private for t in model.tables), out_dir,
                 sum(t.private for t in model.tables), private_dir)
     return paths
+
+
+RUN_TABLE = "dim_pipeline_run"
+
+
+def export_run_table(conn: sqlite3.Connection, out_dir: Path, model: SemanticModel, meta: ExportMeta) -> Path | None:
+    """Rewrite only ``dim_pipeline_run.parquet`` from ``pipeline_runs`` and its entry in the folder's manifest: what closing a run, a failure or
+    a run with no delivery changes (plan, sections 3 and 22). Nothing is created that was not there: without an exported, verified set it
+    returns None. The other files keep their bytes."""
+    out_dir = Path(out_dir)
+    manifest_path = out_dir / STAR_MANIFEST
+    if not manifest_path.is_file() or verify_star_schema(out_dir):
+        return None
+    table = model.table(RUN_TABLE)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        run_sql_file(conn, SQL_DIR / "marts" / "powerbi" / "mart_08_dim_pipeline_run.sql")
+        data = _serialize(conn, table, meta.metadata())
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    path = write_atomic(out_dir / f"{RUN_TABLE}.parquet", data)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for entry in manifest["files"]:
+        if entry["name"] == path.name:
+            entry.update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+    write_atomic(manifest_path, json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=1) + "\n")
+    logger.info("run table rewritten: %s (%d bytes)", path.name, len(data))
+    return path
