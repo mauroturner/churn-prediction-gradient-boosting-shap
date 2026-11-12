@@ -295,6 +295,18 @@ def launch_cuts(tmp_path_factory: pytest.TempPathFactory, loaded_masters, cfg) -
 
 
 @pytest.fixture(scope="session")
+def quick_history(tmp_path_factory: pytest.TempPathFactory, launch_cuts: Path, canonical, loaded_masters, fixture_truth):
+    """The quick run of the whole plan on the standard fixture (``tests/fixtures/history.py``), from a copy of ``launch_cuts``: the launch
+    trains and seals, every later run loads its delivery, builds its cuts, reuses the frozen model and scores its cut. Built once per session;
+    a test that writes works on copies of its warehouse, its artifact and its seal."""
+    from tests.fixtures.history import build_history, quick_config
+
+    folder = tmp_path_factory.mktemp("quick_history")
+    frame, _report = canonical
+    return build_history(folder, quick_config(folder), fixture_truth.zip_sha256, launch_cuts, frame, loaded_masters.entries)
+
+
+@pytest.fixture(scope="session")
 def real_canonical(cfg, tmp_path_factory: pytest.TempPathFactory):
     """``(fetch result, frame, report)``: the real canonical lines, built once per session from a copy of the pinned zip in a folder of the
     session's own (mark real_data only; the zip is never downloaded again). Reading the real workbook takes about 40 s, so every real_data
