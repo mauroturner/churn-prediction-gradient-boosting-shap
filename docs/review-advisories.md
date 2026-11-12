@@ -1,8 +1,8 @@
 # Advertencias de las revisiones nativas
 
-Las advertencias que dejaron las revisiones nativas de Gentle AI de este proyecto, de U01 a U29, una sección por revisión, con su estado. Salen de los hallazgos que cada revisión devolvió (155 en sus archivos, más 5 que constan solo en el registro: el de U19 y los de la parte 2c de U29; todos sin bloqueo salvo los que se dicen) y del registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L46 a L53), que dice cuáles se corrigieron, cuáles se dejaron con evidencia y cuáles quedaron como advertencias para este documento. La última sección suma lo que encontró U31 al escribir la documentación.
+Las advertencias que dejaron las revisiones nativas de Gentle AI de este proyecto, de U01 a U29, una sección por revisión, con su estado. Salen de los hallazgos que cada revisión devolvió (155 en sus archivos, más 5 que constan solo en el registro: el de U19 y los de la parte 2c de U29; todos sin bloqueo salvo los que se dicen) y del registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L46 a L55), que dice cuáles se corrigieron, cuáles se dejaron con evidencia y cuáles quedaron como advertencias para este documento. Las dos últimas secciones suman lo que encontró U31 al escribir la documentación y lo que encontró la evaluación independiente de `e28b1fb` (un bloqueante y 18 advertencias, L55), con lo que hizo su tanda de correcciones.
 
-Estados: **corregida** (con el commit que la corrige, con la prueba escrita primero), **dejada con evidencia** (el hallazgo no es un defecto, o ya está cubierto, con la evidencia) y **abierta** (cierta o posible, sin corregir; la tanda de correcciones que sigue a la evaluación independiente las vuelve a mirar). Ninguna advertencia se corrigió en U31. Lentes: riesgo (R1), legibilidad (R2), confiabilidad (R3) y resiliencia (R4). Las ubicaciones son relativas a la carpeta del proyecto y a la versión revisada.
+Estados: **corregida** (con el commit que la corrige, con la prueba escrita primero), **dejada con evidencia** (el hallazgo no es un defecto, o ya está cubierto, con la evidencia) y **abierta** (cierta o posible, sin corregir; la tanda de correcciones de la evaluación independiente corrigió las que eligió el registro, L55, y las demás siguen abiertas). Ninguna advertencia se corrigió en U31. Lentes: riesgo (R1), legibilidad (R2), confiabilidad (R3) y resiliencia (R4). Las ubicaciones son relativas a la carpeta del proyecto y a la versión revisada.
 
 Dos tramos no se revisaron porque la evaluación de riesgo los dio pasivos: `c18e47f..fb59d06` (las decisiones D78-D80) y la parte 2d de U29 (las siete figuras, binarias). Una revisión, la de U06-U10 entera, y otra, la de U29 entera, superaron el presupuesto de contexto sin crear autoridad, y se hicieron por partes.
 
@@ -179,7 +179,7 @@ Dos tramos no se revisaron porque la evaluación de riesgo los dio pasivos: `c18
 - **R3-evaluate-no-seal-error** (`src/churnrisk/reporting.py`, líneas 152-153; advertencia): `evaluate` antes de cualquier sello no tenía prueba.
   - Estado: **corregida** en `267d26a`.
 - **R3-post-seal-costs-staleness** (`src/churnrisk/reporting.py`, líneas 290-299; sugerencia): el análisis posterior al sello se rotula con los costos de la llamada, no con los que produjeron sus filas.
-  - Estado: **abierta**.
+  - Estado: **corregida** en `969f2b4`: los costos de arriba del resumen son los sellados cuando los criterios son los sellados, y el bloque posterior al sello lleva los de la corrida (A2 de la evaluación, D92).
 
 ## U18 (`96ad707..7a46452`; riesgo y confiabilidad; aprobada; 4 advertencias)
 
@@ -406,20 +406,20 @@ Dos tramos no se revisaron porque la evaluación de riesgo los dio pasivos: `c18
 Esta revisión abrió una corrección; la corrección amplió el alcance, la revisión se recuperó y la aprobó la sucesora (sección siguiente). Sus hallazgos no figuran en los archivos de advertencias: salen del registro (L53), que les da un nombre solo al primero; los otros tres se nombran aquí por lo que dicen.
 
 - **R3-dim-as-of-dead-slicer** (página 3 del diseño; crítico): el filtro de fechas de la página de seguimiento estaba enlazado a `dim_as_of`, que no filtra `fact_tracking`.
-  - Estado: **corregida** en `fe25112`: el filtro usa `dim_date[date]`, que tiene una relación activa con `fact_tracking`; la escribió un agente con Sonnet, con la prueba primero, y el HTML lo regeneró el renderizador.
+  - Estado: **corregida** en `fe25112`: el filtro usa `dim_date[date]`, que tiene una relación activa con `fact_tracking`; la escribió un agente con Sonnet, con la prueba primero, y el HTML lo regeneró el renderizador. Después, `aad019b` lo pasó a `dim_as_of[as_of_label]`, con su relación R19 (D90).
 - **L53-slicer-739-dias** (página 3 del diseño; advertencia): con la corrección, el filtro lista 739 días de calendario para 6 fechas de cálculo.
-  - Estado: **abierta**.
+  - Estado: **corregida** en `aad019b`: el filtro usa `dim_as_of[as_of_label]`, que lista solo las 6 fechas de cálculo (A10 de la evaluación, D90).
 - **L53-dim-as-of-sin-uso** (`dim_as_of`; advertencia): después de la corrección, `dim_as_of` no lo usa ningún visual.
-  - Estado: **abierta**.
+  - Estado: **corregida** en `aad019b`: R19 lo relaciona con `fact_tracking[as_of_key]` y es el filtro de la página 3 (D90).
 - **L53-slicers-pagina-1** (página 1 del diseño; advertencia): los filtros de país y de banda de riesgo de la página 1 no llegan al gráfico de motivos.
-  - Estado: **abierta**.
+  - Estado: **corregida** en `aad019b`: el título del gráfico dice que es de todo el corte y que el país y la banda no lo filtran (D90).
 
 ## U29-2c-sucesora (el HTML con la corrección; confiabilidad; aprobada; 2 advertencias)
 
 - **R3-dim-as-of-fix-verified** (`tests/unit/test_semantic_model.py`, líneas 211-243; sugerencia): la prueba nueva prueba directamente la corrección del filtro.
   - Estado: **dejada con evidencia**: es una confirmación, no un defecto: `test_the_slicers_of_the_tracking_page_filter_every_one_of_its_visuals` pasa en la suite rápida. El registro (L53) no nombra este hallazgo.
 - **R3-generic-slicer-test-weak-any** (`tests/unit/test_semantic_model.py`, líneas 217-222; sugerencia): la prueba general de los filtros se conforma con que un filtro llegue a algún visual de su página, no a todos.
-  - Estado: **abierta**: es la forma general de `L53-slicers-pagina-1`; el registro (L53) no lo nombra con este id.
+  - Estado: **corregida** en `aad019b`: la prueba pide que cada filtro llegue a cada visual de su página, o que el título del visual diga que ese filtro no lo filtra, y solo si es cierto (D90).
 
 ## U29-3 (los archivos del sitio salvo `algorithms.json`; riesgo y confiabilidad; aprobada; 1 advertencia)
 
@@ -436,6 +436,49 @@ Esta revisión abrió una corrección; la corrección amplió el alcance, la rev
 ## U31 (lo que encontró la documentación; 2 hallazgos)
 
 - **plan-24.2-test_privacy** (`tests/integration/test_privacy.py`; advertencia): el plan, sección 24.2, nombra `test_no_fixture_customer_id_in_any_versioned_byte_or_run_log` y ninguna unidad la escribió: el archivo no existe. Otras pruebas cubren partes de la clase (`tests/contract/test_site_export.py::test_no_identifier_or_sentinel_and_small_cells_suppressed`, `tests/unit/test_render.py::test_html_has_every_page_escapes_data_text_and_masks_the_customer_column`, `tests/contract/test_star_schema.py::test_the_customer_level_fact_is_written_outside_the_versioned_folder`), pero ninguna recorre cada byte versionado y los registros de corrida.
-  - Estado: **abierta**: U31 no puede escribir en `tests/integration/`; `tests/docs/test_docs.py::test_every_test_named_in_the_plan_exists` la nombra como el único hueco y falla si aparece otro o si se escribe esta (D88).
+  - Estado: **corregida** en `969f2b4` y `07d2a54`: la prueba existe y `KNOWN_MISSING` está vacío (A11 de la evaluación, D92).
 - **resumen-C07-barras** (`reports/evaluation_summary.md`, la fila de C07; advertencia): el umbral de C07 escribe «|sesgo|» sin escapar las barras, así que la tabla del resumen, y con ella el bloque de resultados del README, se ve con una columna de más en esa fila.
-  - Estado: **abierta**: el texto sale de `reporting.summary_markdown` y del criterio sellado; corregirlo reescribe un reporte de la corrida real, y es de la tanda de correcciones.
+  - Estado: **corregida** en `1829c5f`: `summary_markdown` escapa las barras de cada celda; el resumen se regeneró y `docs-sync` lo copió en el README (A4 de la evaluación, D91).
+
+## Evaluación (la evaluación independiente de `e28b1fb`; un bloqueante y 18 advertencias)
+
+Un agente con Opus que no construyó el proyecto lo evaluó en un clon aparte (L55). El registro eligió qué corregir; las demás quedan como advertencias, dichas aquí y en las decisiones que nombra cada una.
+
+- **B1** (README, ficha del modelo, paso a paso, D87, D88 y `SITE-UPDATES.md`; bloqueante): la documentación decía de U30 y U31 quién las escribió, con qué modelo y en cuánto tiempo corrió la suite, y el registro en `e28b1fb` terminaba en L53; el README decía además «29 unidades».
+  - Estado: **corregida** en `e87dd0e` (L54 registra U30 y U31) y en el commit de documentación que sigue a `07d2a54`: cada afirmación dice lo que dicen L54 y L55, y el README dice 31 unidades.
+- **A1** (`src/churnrisk/pipeline.py`; advertencia): la parte de la prueba del sello se podía escribir después de una evaluación posterior al sello, con la fecha de cálculo del 2011-12-09.
+  - Estado: **corregida** en `c139ca2`: mientras el sello no tiene la parte de la prueba, una corrida que la evaluaría con otra configuración se rechaza antes de escribir (D89, R13).
+- **A2** (`src/churnrisk/reporting.py`; advertencia): en un resumen posterior al sello, los costos de arriba eran los de la corrida, junto a cifras selladas.
+  - Estado: **corregida** en `969f2b4` (D92; la misma que `U17/R3-post-seal-costs-staleness`).
+- **A3** (`reports/evaluation_summary.json`, `outputs/site/summary.json`; advertencia): el resumen versionado nombra claves de corrida del sello (18:20 y 18:23) distintas de las del sello versionado (17:46 y 17:49).
+  - Estado: **abierta**: lo dice D85 (el sello es el de la primera corrida y las salidas, las de la repetición); el registro lo deja así (L55).
+- **A4** (`reports/evaluation_summary.md`, la fila de C07; advertencia): «|sesgo|» sin escapar parte la fila (la misma que `U31/resumen-C07-barras`).
+  - Estado: **corregida** en `1829c5f` (D91).
+- **A5** (el veredicto de C09; advertencia): «no deja … en 9 de los 17» se lee como 9 fallas, y 9 son los puntos donde el modelo cumple; C09 es además frágil: con los parámetros del óptimo de `lifetimes`, B* en el punto 0,10 da 2.501,9 contra 2.502,2 del modelo.
+  - Estado: **corregida** en `1829c5f`: la fila del resumen dice en cuántos puntos el modelo deja al menos el beneficio de B* (9) y en cuántos no (8), sin cambiar el veredicto sellado (D91). La fragilidad queda dicha aquí.
+- **A6** (`outputs/site/algorithms.json`, la curva de costo; advertencia): el 0 del modelo contra los valores negativos de B* sale de la grilla (sin «no contactar a nadie» cuando p ≥ 0,99); ninguna cifra publicada depende de eso.
+  - Estado: **abierta** (la misma clase que `U29-4/R3-001`).
+- **A7** (`outputs/site/algorithms.json`, `b_star.auc_valid`; advertencia): el 0,766 es el AUC de V2 sola, rotulado `chosen_on: valid`; el que decidió (V1 y V2) es cerca de 0,767, y B3 le gana a B4 por 0,0008.
+  - Estado: **abierta**.
+- **A8** (`capture_10` de las reglas con empates; advertencia): depende del orden interno: B4 da 234 contra 244,6 esperado con empates al azar, B2 259 contra 260,4; C04 usa B3, sin empates.
+  - Estado: **abierta**.
+- **A9** (cuentas chicas dentro de celdas de al menos 10 y cuentas de validación de menos de 10; advertencia): aceptables según el evaluador, no por la letra de RNF12.
+  - Estado: **abierta**: D27, D68, D85 y D86 las dicen; cambiar RNF12 o publicar «<10» es del dueño (L55).
+- **A10** (`dashboard/powerbi-design.html`, páginas 1 y 3; advertencia): el filtro de la página 3 lista 739 días para 6 fechas de cálculo, `dim_as_of` no tiene relación ni visual, y los filtros de país y banda no llegan al gráfico de motivos.
+  - Estado: **corregida** en `aad019b` (D90).
+- **A11** (`tests/integration/test_privacy.py`; advertencia): la prueba de privacidad del plan no existía (D88).
+  - Estado: **corregida** en `969f2b4` y `07d2a54` (D92).
+- **A12** (`src/churnrisk/lock.py`; advertencia): un bloqueo que quedó por una liberación fallida rechaza incluso a su propio proceso vivo, y uno viejo se borra a mano.
+  - Estado: **abierta**: R9 dice cómo borrarlo; reconocer la ficha del dueño queda para otra tanda (L55).
+- **A13** (`tests/e2e/test_airflow_docker.py`; advertencia): la prueba de Docker dejaba la imagen `churnrisk-airflow:3.4.0`.
+  - Estado: **corregida** en `969f2b4`: la borra si la construyó (D92).
+- **A14** (`tests/integration/test_evaluation.py`, `tests/contract/test_star_schema.py`; advertencia): la función auxiliar `test_delivery` se recogía como prueba, y había un escape inválido.
+  - Estado: **corregida** en `969f2b4`: `tests/unit/test_sources.py` vigila los dos casos (D92).
+- **A15** (`src/churnrisk/pipeline.py`; advertencia): una corrida rechazada porque otra más vieja tiene la entrega termina con 1 y deja su estado `failed`.
+  - Estado: **abierta**: R4 lo dice.
+- **A16** (`SITE-UPDATES.md`; advertencia): el «77,9 %» no nombraba su corte.
+  - Estado: **corregida** en el commit de documentación que sigue a `07d2a54`: es el del 2011-09-01.
+- **A17** (`reports/validation/`; advertencia): los ejemplos de la validación versionados llevan `line_id`, código de producto y fecha, que señalan una línea de la fuente pública.
+  - Estado: **abierta**: riesgo bajo según el evaluador; la fuente es pública.
+- **A18** (la suite rápida; advertencia): sobre el presupuesto de trabajo de 100 s, como dice la ficha del modelo.
+  - Estado: **abierta**: al cerrar las correcciones midió 118,99 s y 119,17 s, dentro del límite de 120 s.

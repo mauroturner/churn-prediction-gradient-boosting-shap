@@ -1,6 +1,6 @@
 # Paso a paso: cómo se construyó
 
-La cronología real del proyecto, desde el registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L44 a L53) y `git log`, con cada commit del proyecto en orden y lo que hizo. Los commits `docs(odd)` registran cada paso en el documento de seguimiento, fuera de esta carpeta; se nombran donde cierran una tanda. Quién escribió cada parte es lo que consta en el registro: un agente con Haiku investigó, uno con Opus escribió el plan, agentes con Opus escribieron las unidades U01 a U31, y agentes con Sonnet escribieron la tanda G1 y las correcciones de cuatro revisiones. Cada unidad se escribió con la prueba primero y vista fallar (la «RED» del plan, sección 27), salvo U22 a U25, cuyas REDs se recuperaron después quitando cada regla en una copia (L51); cada regla se comprobó con mutaciones que una prueba con nombre atrapa. Las cifras de la corrida real están en `docs/decisions.md`, D85, y en la [ficha del modelo](model-card.md).
+La cronología real del proyecto, desde el registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L44 a L55) y `git log`, con cada commit del proyecto en orden y lo que hizo. Los commits `docs(odd)` registran cada paso en el documento de seguimiento, fuera de esta carpeta; se nombran donde cierran una tanda. Quién escribió cada parte es lo que consta en el registro: un agente con Haiku investigó, uno con Opus escribió el plan, agentes con Opus escribieron las unidades U01 a U31, agentes con Sonnet escribieron la tanda G1 y las correcciones de cuatro revisiones, un agente con Opus que no construyó el proyecto lo evaluó y un agente con Opus escribió las correcciones de esa evaluación. Cada unidad se escribió con la prueba primero y vista fallar (la «RED» del plan, sección 27), salvo U22 a U25, cuyas REDs se recuperaron después quitando cada regla en una copia (L51); cada regla se comprobó con mutaciones que una prueba con nombre atrapa. Las cifras de la corrida real están en `docs/decisions.md`, D85, y en la [ficha del modelo](model-card.md).
 
 ## Investigación y plan (2026-11-11)
 
@@ -76,7 +76,7 @@ Suite rápida: 726 pruebas en 108,64 s en reposo. Seis revisiones; tres aprobada
 - `45e76d9` Lo que esas revisiones encontraron sin prueba, seis casos con su mutación.
 - `dfa7ff4` La suite más barata antes de U26 (D81).
 - `17d123a` **U26** La línea de comandos y el modo rápido aislado (D82).
-- `4a9d9f2` **U27** El DAG de Airflow, su imagen y el compose con cada secreto del entorno (ítems 5 y 2, sola; D83). Las pruebas que necesitan Docker no se corrieron.
+- `4a9d9f2` **U27** El DAG de Airflow, su imagen y el compose con cada secreto del entorno (ítems 5 y 2, sola; D83). Las pruebas que necesitan Docker no se corrieron entonces; las corrió la evaluación independiente (L55).
 - `ca3d2df` **U28** Las siete figuras, dibujadas solo desde los archivos del sitio verificados (D84).
 - `6bda6c9` **G1** (Sonnet) Correcciones de advertencias de U27, U28 y de las revisiones de la tanda: la celda oculta de la figura de la definición, las figuras escritas todas o ninguna, `make-fixture` sin la carpeta `tests`, la lectura del id de arranque y el aviso del DAG.
 - `4b32b8e` **G1** (Sonnet) Solo pruebas: el despertar del bloqueo, el id de arranque, las tarjetas sin divisor, `docs-sync` sin el resumen y las figuras entre procesos.
@@ -91,11 +91,26 @@ Suite rápida: 845 pruebas y una omitida en 105,60 s, sobre el presupuesto de 10
 
 Suite rápida: 849 pruebas y una omitida en 112,83 s; `-m real_data`, 9 de 9 en 51,65 s. U29 tenía 5.855 líneas, más que el presupuesto de contexto de una revisión, y se revisó en partes; todas aprobaron salvo la del HTML, que abrió la corrección. `ceff9ea` lo registra.
 
-## U30-U31: la documentación
+## U30-U31: la documentación (L54)
 
-- `3ec6052` **U30** (Opus) El README con los títulos del plan y el bloque de resultados que copia `docs-sync`, ahora con los títulos del resumen un nivel más abajo (D87), y la ficha del modelo con las cifras reales y sus intervalos. Suite rápida: 856 pruebas (una omitida) en 109,14 s y 106,60 s.
-- **U31** (Opus) Este documento, el diccionario de datos con sus tablas escritas por `docs-sync` desde el modelo semántico, el runbook R1-R14 con los comandos corridos y sus códigos de salida, las advertencias de las revisiones con su estado, las filas del proyecto 04 en `SITE-UPDATES.md` y `LANDING-EXPANSION.md` y las pruebas de coherencia de la documentación (D88).
+- `3ec6052` **U30** (Opus) El README con los títulos del plan y el bloque de resultados que copia `docs-sync`, ahora con los títulos del resumen un nivel más abajo (D87), y la ficha del modelo con las cifras reales y sus intervalos. Suite rápida, como la informó quien escribió la unidad (L55): 855 pruebas pasaron y 1 se omitió (856, la cuenta que la evaluación comprobó en `3ec6052`), en 109,14 s y 106,60 s.
+- `e28b1fb` **U31** (Opus) Este documento, el diccionario de datos con sus tablas escritas por `docs-sync` desde el modelo semántico, el runbook R1-R14 con los comandos corridos y sus códigos de salida, las advertencias de las revisiones con su estado, las filas del proyecto 04 en `SITE-UPDATES.md` y `LANDING-EXPANSION.md` y las pruebas de coherencia de la documentación (D88).
+
+Suite rápida: 868 pruebas pasaron y 1 se omitió, en 108,19 s y 107,05 s; `-m real_data`, 9 de 9 en 52,38 s. `e87dd0e` lo registra.
+
+## La evaluación independiente y sus correcciones (L55)
+
+Un agente con Opus que no construyó el proyecto evaluó `e28b1fb` en un clon aparte, con su propio lector del libro, su neteo, sus cortes, sus etiquetas, sus reglas, su BG/NBD y su remuestreo: reprodujo cada cifra del resumen, corrió la repetición real (305,1 s) y `-m docker` (2 pasaron en 147,6 s) y midió la suite rápida en 109,69 s y 108,99 s. Encontró un bloqueante, que la documentación decía de U30 y U31 cosas que el registro todavía no tenía (B1, que `e87dd0e` y este paso cierran), y 18 advertencias (A1-A18). `c27c70e` registra la evaluación y las correcciones elegidas. Un agente con Opus las escribió, cada una con la prueba primero y sus mutaciones:
+
+- `c139ca2` **A1** Mientras el sello no tiene la parte de la prueba, una corrida que evaluaría la prueba con otra configuración se rechaza antes de escribir (ítem 1, sola; D89).
+- `aad019b` **A10** `dim_as_of` filtra `fact_tracking` (R19) y es el segmentador de fechas de la página 3; el gráfico de motivos dice que el país y la banda no lo filtran; el HTML regenerado por el renderizador (D90).
+- `1829c5f` **A4 y A5** El resumen escapa las barras de cada celda y dice C09 en claro, sin tocar lo sellado; regenerado con una repetición real completa en una copia nueva, cuyo sello coincide con el versionado salvo las dos claves de corrida (D91).
+- `969f2b4` **A11, A2, A14 y A13** La prueba de privacidad del plan, los costos sellados junto a las cifras selladas, una función auxiliar que la suite contaba como prueba y la imagen que dejaba la prueba de Docker (D92).
+- `07d2a54` La prueba de privacidad toma lo sellado de la historia rápida y la repetición compartida termina antes de la corrida de la prueba, porque la suite rápida había pasado su límite (D92).
+- La documentación de las correcciones: B1 y A16, el estado de cada advertencia y las cifras de la suite medidas al cerrar.
+
+Suite rápida: 879 pruebas pasaron y 1 se omitió, en 118,99 s y 119,17 s; `-m real_data`, 9 de 9 en 55,68 s; `-m docker`, 2 de 2 en 95,44 s.
 
 ## Lo que falta
 
-La evaluación independiente (plan, sección 28), con sus correcciones, su comprobación y la sincronización de la documentación con la última corrección; la prueba de Airflow en Docker; la página del sitio; y lo que es del dueño: los costos reales, el `.pbix`, el texto del sitio, la estrategia de entrega y el `push` (plan, sección 29).
+La comprobación de las correcciones (plan, sección 28, punto 3), el informe de la evaluación (`docs/evaluation.md`) y la sincronización de la documentación con la última corrección; la revisión nativa del tramo; la página del sitio; y lo que es del dueño: los costos reales, el `.pbix`, el texto del sitio, la estrategia de entrega y el `push` (plan, sección 29).
