@@ -387,26 +387,22 @@ def quick_replay(tmp_path_factory: pytest.TempPathFactory, pipeline_states: dict
 @pytest.fixture(scope="session")
 def replay_states(tmp_path_factory: pytest.TempPathFactory, quick_replay):
     """More of the documented quick replay, once per session, from a copy of the quick project the session's ``quick_replay`` left (the
-    launch and ``M2011-08`` closed): ``replay --until M2011-10``, a copy of its ``data/quick`` as ``before_test`` (the seal still without its
-    test part, ``M2011-11`` pending: the run that evaluates the test), then ``replay --until M2011-11`` (the run that writes the test part of
-    the seal and the sealed outputs) and a lone ``task track`` of a new run, which fails and leaves its traceback in its state file (exit 1).
-    The close (``C2011-12``) and a run with no delivery write the same kinds of files and are left out: the fast suite is near its limit
-    (D92). Each command runs in this process from an empty folder that is not the project; ``results`` keeps their exit codes and what they
-    wrote to stdout and stderr. A test that writes works on a copy (D34)."""
+    launch and ``M2011-08`` closed): ``replay --until M2011-10``, which leaves the seal without its test part and ``M2011-11`` (the run that
+    evaluates the test) pending, then a lone ``task track`` of a new run, which fails and leaves its traceback in its state file (exit 1).
+    The run that seals the test and those after it write the same kinds of files and are left out: the fast suite is at its limit, and the
+    sealed outputs come from the quick history (D92). Each command runs in this process from an empty folder that is not the project;
+    ``results`` keeps their exit codes and what they wrote to stdout and stderr. A test that writes works on a copy (D34)."""
     from tests.fixtures.cli_helpers import QUICK_CONFIG, at_home, cli
 
     base = tmp_path_factory.mktemp("replay_states")
     home, elsewhere = base / "clone", base / "elsewhere"
     shutil.copytree(quick_replay.home, home)
     elsewhere.mkdir()
-    before_test = base / "before_test"
     results = []
     with at_home(home, elsewhere):
         results.append(cli("replay", "--config", QUICK_CONFIG, "--until", "M2011-10"))
-        shutil.copytree(home / "data" / "quick", before_test)
-        results.append(cli("replay", "--config", QUICK_CONFIG, "--until", "M2011-11"))
         results.append(cli("task", "track", "--config", QUICK_CONFIG))
-    return types.SimpleNamespace(home=home, quick=home / "data" / "quick", before_test=before_test, elsewhere=elsewhere, results=results)
+    return types.SimpleNamespace(home=home, quick=home / "data" / "quick", elsewhere=elsewhere, results=results)
 
 
 @pytest.fixture(scope="session")
