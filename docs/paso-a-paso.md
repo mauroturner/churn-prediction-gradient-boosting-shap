@@ -108,8 +108,9 @@ Un agente con Opus que no construyó el proyecto evaluó `e28b1fb` en un clon ap
 - `969f2b4` **A11, A2, A14 y A13** La prueba de privacidad del plan, los costos sellados junto a las cifras selladas, una función auxiliar que la suite contaba como prueba y la imagen que dejaba la prueba de Docker (D92).
 - `07d2a54` La prueba de privacidad toma lo sellado de la historia rápida y la repetición compartida termina antes de la corrida de la prueba, porque la suite rápida había pasado su límite (D92).
 - La documentación de las correcciones: B1 y A16, el estado de cada advertencia y las cifras de la suite medidas al cerrar.
+- La tanda de velocidad que sigue: el recolector de basura de las pruebas recorre menos veces lo que los accesorios de sesión mantienen vivo (D93). No llegó al presupuesto de 100 s.
 
-Suite rápida: 879 pruebas pasaron y 1 se omitió, en 118,99 s y 119,17 s; `-m real_data`, 9 de 9 en 55,68 s; `-m docker`, 2 de 2 en 95,44 s.
+Suite rápida: 879 pruebas pasaron y 1 se omitió, en 118,99 s y 119,17 s al cerrar las correcciones y en 108,27 s y 107,36 s después de D93; `-m real_data`, 9 de 9 en 55,68 s; `-m docker`, 2 de 2 en 95,44 s.
 
 ## Lo que falta
 
