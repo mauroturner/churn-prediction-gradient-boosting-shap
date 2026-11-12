@@ -3,7 +3,9 @@ from project 03's ``dashboard/semantic_model.py``.
 
 The tables with their columns (type, description, unit) and the relationships (all one to many, single direction, active) live here; the Arrow
 schema of every Parquet file and, later, the data dictionary and the HTML design come from this module. Names of tables, columns and files are
-in English; descriptions and labels in Spanish (D36). The measures, the what-if parameters and the pages arrive with U21.
+in English; descriptions and labels in Spanish (D36). The measures (DAX), the three what-if parameters of the costs and the five pages of
+the report (a 12 x 9 grid of visuals) live here too (U21, plan section 20, D71); ``validate_model`` checks that every DAX reference and every
+field of a visual is a column, a parameter or a measure of the model.
 
 Dimensions have a unique key; facts have a grain (``Table.key``). ``dim_as_of``, ``dim_model`` and the facts of the evaluation have no key
 relationship: they feed their own visuals. The customer-level fact (``fact_customer_cut``) carries the customer number and is written to
@@ -13,7 +15,9 @@ identifier and the report and the site translate it from here (D60).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal
 
 import pyarrow as pa
@@ -84,12 +88,69 @@ class Relationship:
 
 
 @dataclass(frozen=True)
+class Measure:
+    name_es: str
+    dax: str
+    format_string: str
+    description_es: str
+
+
+@dataclass(frozen=True)
+class WhatIfParameter:
+    """A what-if parameter as Power BI's «Nuevo parámetro» creates it: a table and a column with its name, ``GENERATESERIES(start, end, step)``
+    and a default; the report's measures read it with ``SELECTEDVALUE``."""
+
+    name_es: str
+    start: float
+    end: float
+    step: float
+    default: float
+    description_es: str
+
+    def values(self) -> tuple[float, ...]:
+        """The series, in decimal steps (0.05 + 0.05 is 0.1, not 0.1000000000000001)."""
+        start, end, step = (Decimal(str(v)) for v in (self.start, self.end, self.step))
+        count = int((end - start) / step) + 1
+        return tuple(float(start + i * step) for i in range(count) if start + i * step <= end)
+
+    def generateseries(self) -> str:
+        return f"GENERATESERIES({_number(self.start)}, {_number(self.end)}, {_number(self.step)})"
+
+
+def _number(value: float) -> str:
+    return f"{value:g}"
+
+
+@dataclass(frozen=True)
+class Visual:
+    kind: str                     # slicer, card, table, barChart, lineChart, matrix, ...
+    title_es: str
+    fields: tuple[str, ...]       # "table[column]", "'Parameter'[Parameter]" or "[Measure]"
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+@dataclass(frozen=True)
+class Page:
+    name_es: str
+    visuals: tuple[Visual, ...]
+
+
+@dataclass(frozen=True)
 class SemanticModel:
     tables: tuple[Table, ...]
     relationships: tuple[Relationship, ...]
+    measures: tuple[Measure, ...] = ()
+    parameters: tuple[WhatIfParameter, ...] = ()
+    pages: tuple[Page, ...] = ()
 
     def table(self, name: str) -> Table:
         return next(t for t in self.tables if t.name == name)
+
+    def measure(self, name: str) -> Measure:
+        return next(m for m in self.measures if m.name_es == name)
 
 
 def _c(name: str, dtype: str, description_es: str, unit: str | None = None) -> Column:
@@ -255,12 +316,214 @@ _PAIRS = (
     ("dim_pipeline_run", "run_key", "fact_validation", "run_key"),
 )
 RELATIONSHIPS: tuple[Relationship, ...] = tuple(Relationship(f"R{i:02d}", *pair) for i, pair in enumerate(_PAIRS, start=1))
-MODEL = SemanticModel(TABLES, RELATIONSHIPS)
+
+# --- the what-if parameters, the measures and the pages (plan, section 20; D71) ------------------------------------------------------
+
+OFFER, RATE, VALUE = "Costo de la oferta", "Tasa de rescate", "Valor del cliente retenido"
+PARAMETERS: tuple[WhatIfParameter, ...] = (
+    WhatIfParameter(OFFER, 1, 20, 0.5, 5, "Costo de una oferta de retención, en unidades genéricas: un supuesto, no un dato (D22)."),
+    WhatIfParameter(RATE, 0.05, 0.5, 0.05, 0.2, "Parte de los clientes que se iban y la oferta retiene: un supuesto, no un dato (D22)."),
+    WhatIfParameter(VALUE, 10, 200, 5, 50, "Valor de un cliente retenido, en unidades genéricas: un supuesto, no un dato (D22)."),
+)
+INTEGER, PERCENT, DECIMAL_1, DECIMAL_2, DECIMAL_3, DATE_FORMAT, TEXT_FORMAT = "#,0", "0.0%", "#,0.0", "0.00", "0.000", "yyyy-mm-dd", "@"
+_CONTACTED = "fact_customer_cut[is_contact] = TRUE ()"
+_TEST_MODEL = 'fact_method_metrics[scope] = "test", fact_method_metrics[method_key] = "model", fact_method_metrics[seal_state] = "sealed"'
+
+MEASURES: tuple[Measure, ...] = (
+    Measure("Costo de la oferta (u.)", f"SELECTEDVALUE ( '{OFFER}'[{OFFER}], 5 )", DECIMAL_2, "El costo de la oferta elegido en el panel (supuesto); 5 sin elegir."),
+    Measure("Tasa de rescate", f"SELECTEDVALUE ( '{RATE}'[{RATE}], 0.2 )", PERCENT, "La tasa de rescate elegida en el panel (supuesto); 0,2 sin elegir."),
+    Measure("Valor del cliente retenido (u.)", f"SELECTEDVALUE ( '{VALUE}'[{VALUE}], 50 )", DECIMAL_2,
+            "El valor del cliente retenido elegido en el panel (supuesto); 50 sin elegir."),
+    Measure("Punto de equilibrio del panel", "DIVIDE ( [Costo de la oferta (u.)], [Tasa de rescate] * [Valor del cliente retenido (u.)] )", DECIMAL_3,
+            "Riesgo desde el que contactar paga con los supuestos del panel: costo / (tasa × valor). Con los valores por defecto es el sellado, 0,5."),
+    Measure("Clientes puntuados", "COUNTROWS ( fact_customer_cut )", INTEGER, "Clientes puntuados en los cortes elegidos."),
+    Measure("Riesgo medio", "AVERAGE ( fact_customer_cut[risk] )", PERCENT, "Probabilidad media de irse de los clientes puntuados."),
+    Measure("Bajas esperadas", "SUM ( fact_customer_cut[risk] )", DECIMAL_1, "Clientes que el modelo espera que se vayan: la suma de los riesgos."),
+    Measure("Contactos (umbral sellado)", f"CALCULATE ( COUNTROWS ( fact_customer_cut ), {_CONTACTED} )", INTEGER,
+            "Clientes cuyo riesgo alcanza el umbral sellado en V2."),
+    Measure("Contactos con el panel", "VAR t = [Punto de equilibrio del panel]\n    RETURN CALCULATE ( COUNTROWS ( fact_customer_cut ), KEEPFILTERS ( fact_customer_cut[risk] >= t ) )",
+            INTEGER, "Clientes cuyo riesgo alcanza el punto de equilibrio del panel, dentro de los segmentadores de corte, país y banda."),
+    Measure("Beneficio esperado con el panel (u.)",
+            "VAR t = [Punto de equilibrio del panel]\n    RETURN SUMX ( FILTER ( fact_customer_cut, fact_customer_cut[risk] >= t ),\n"
+            "        fact_customer_cut[risk] * [Tasa de rescate] * [Valor del cliente retenido (u.)] - [Costo de la oferta (u.)] )",
+            DECIMAL_1, "Beneficio esperado de contactar a esos clientes con los supuestos del panel: riesgo × tasa × valor − costo, sumado."),
+    Measure("Ventanas cerradas", "CALCULATE ( COUNTROWS ( fact_customer_cut ), NOT ISBLANK ( fact_customer_cut[churned] ) )", INTEGER,
+            "Clientes puntuados cuya ventana de 90 días ya cerró."),
+    Measure("Bajas observadas", "CALCULATE ( COUNTROWS ( fact_customer_cut ), fact_customer_cut[churned] = 1 )", INTEGER,
+            "Clientes que no volvieron a comprar en su ventana cerrada."),
+    Measure("Tasa de bajas observada", "DIVIDE ( [Bajas observadas], [Ventanas cerradas] )", PERCENT, "Bajas observadas entre las ventanas cerradas."),
+    Measure("Volvieron a comprar", "CALCULATE ( COUNTROWS ( fact_customer_cut ), fact_customer_cut[returned] = TRUE () )", INTEGER,
+            "Clientes puntuados que volvieron a comprar hasta la última fecha de cálculo."),
+    Measure("Contactos que se fueron", "CALCULATE ( [Contactos (umbral sellado)], fact_customer_cut[churned] = 1 )", INTEGER,
+            "Contactos cuya ventana cerró sin una compra."),
+    Measure("Contactos con ventana cerrada", "CALCULATE ( [Contactos (umbral sellado)], NOT ISBLANK ( fact_customer_cut[churned] ) )", INTEGER,
+            "Contactos cuya ventana ya cerró."),
+    Measure("Precisión de los contactos", "DIVIDE ( [Contactos que se fueron], [Contactos con ventana cerrada] )", PERCENT,
+            "Parte de los contactos con ventana cerrada que se fue."),
+    Measure("Recall de los contactos", "DIVIDE ( [Contactos que se fueron], [Bajas observadas] )", PERCENT, "Parte de las bajas observadas que se contactó."),
+    Measure("Beneficio neto con los supuestos (u.)",
+            "[Contactos que se fueron] * [Tasa de rescate] * [Valor del cliente retenido (u.)]\n    - [Contactos con ventana cerrada] * [Costo de la oferta (u.)]",
+            DECIMAL_1, "Lo que habrían dejado los contactos de las ventanas cerradas con los supuestos del panel."),
+    Measure("Clientes del corte (agregado)", "SUM ( fact_cut_band[customers] )", INTEGER, "Clientes puntuados según la tabla versionada, sin las celdas ocultas."),
+    Measure("Contactos del corte (agregado)", "SUM ( fact_cut_band[contacted] )", INTEGER, "Contactos según la tabla versionada, sin las celdas ocultas."),
+    Measure("Volvieron (seguimiento)",
+            "VAR d = MAX ( fact_tracking[as_of_key] ) RETURN CALCULATE ( SUM ( fact_tracking[returned] ), fact_tracking[as_of_key] = d )", INTEGER,
+            "Clientes que volvieron a comprar, en la última fecha de cálculo elegida."),
+    Measure("AUC del modelo (prueba)", f"CALCULATE ( SELECTEDVALUE ( fact_method_metrics[auc] ), {_TEST_MODEL} )", DECIMAL_3,
+            "AUC del modelo en la prueba sellada; vacío hasta el sello."),
+    Measure("Captura en el 10 % (prueba)", f"CALCULATE ( SELECTEDVALUE ( fact_method_metrics[capture_10] ), {_TEST_MODEL} )", PERCENT,
+            "Parte de las bajas en el 10 % de mayor riesgo de cada corte de prueba, del modelo; vacío hasta el sello."),
+    Measure("Umbral sellado", "SELECTEDVALUE ( dim_model[threshold] )", DECIMAL_2, "Umbral de contacto elegido en V2 y sellado."),
+    Measure("Veredicto", 'CALCULATE ( SELECTEDVALUE ( fact_evaluation_summary[verdict_es] ), fact_evaluation_summary[seal_state] = "sealed" )', TEXT_FORMAT,
+            "El veredicto sellado del criterio elegido."),
+    Measure("Última fecha de cálculo", 'CALCULATE ( MAX ( dim_pipeline_run[as_of_date] ), dim_pipeline_run[status] = "ok" )', DATE_FORMAT,
+            "La fecha de cálculo de la última corrida que terminó bien."),
+    Measure("Reglas bloqueantes fallidas",
+            'CALCULATE ( COUNTROWS ( fact_validation ), fact_validation[severity] = "bloqueante", fact_validation[status] = "falla" )', INTEGER,
+            "Reglas bloqueantes que fallaron en las corridas elegidas."),
+    Measure("Líneas de invitados", 'CALCULATE ( SUM ( fact_validation[rows_affected] ), fact_validation[rule_id] = "I02" )', INTEGER,
+            "Líneas sin cliente (invitados) de las entregas de las corridas elegidas (regla I02, sumada por corrida)."),
+)
+
+PAGE_COLUMNS, PAGE_ROWS = 12, 9
+_LIST = ("fact_customer_cut[customer_id]", "dim_country[country_es]", "fact_customer_cut[rec_days]", "fact_customer_cut[freq_365]", "fact_customer_cut[mon_365]",
+         "fact_customer_cut[risk]", "fact_customer_cut[reason_1_es]", "fact_customer_cut[reason_2_es]", "fact_customer_cut[reason_3_es]", "fact_customer_cut[is_contact]")
+_TRACKING = ("fact_tracking[as_of_key]", "dim_cut[cut_date]", "fact_tracking[scored]", "fact_tracking[contacted]", "fact_tracking[returned]",
+             "fact_tracking[churned]", "fact_tracking[expected_churners]", "fact_tracking[is_censored]")
+_CRITERIA = ("fact_evaluation_summary[criterion_id]", "fact_evaluation_summary[name_es]", "fact_evaluation_summary[value]", "fact_evaluation_summary[threshold_es]",
+             "fact_evaluation_summary[seen_by_research]", "fact_evaluation_summary[seen_by_planner]", "fact_evaluation_summary[verdict_es]")
+PAGES: tuple[Page, ...] = (
+    Page("Clientes en riesgo y sus motivos", (
+        Visual("slicer", "Corte", ("dim_cut[cut_date]",), 0, 0, 4, 1),
+        Visual("slicer", "País", ("dim_country[country_es]",), 4, 0, 4, 1),
+        Visual("slicer", "Banda de riesgo", ("dim_risk_band[band_es]",), 8, 0, 4, 1),
+        Visual("card", "Clientes puntuados", ("[Clientes puntuados]",), 0, 1, 3, 1),
+        Visual("card", "Contactos (umbral sellado)", ("[Contactos (umbral sellado)]",), 3, 1, 3, 1),
+        Visual("card", "Riesgo medio", ("[Riesgo medio]",), 6, 1, 3, 1),
+        Visual("card", "Bajas esperadas", ("[Bajas esperadas]",), 9, 1, 3, 1),
+        Visual("table", "Clientes por riesgo, con sus tres motivos", _LIST, 0, 2, 8, 7),
+        Visual("barChart", "Motivos entre los contactados", ("dim_reason[feature_es]", "fact_reason_summary[contacted_top3]"), 8, 2, 4, 7),
+    )),
+    Page("Ganancia y costos", (
+        Visual("slicer", f"{OFFER} (supuesto)", (f"'{OFFER}'[{OFFER}]",), 0, 0, 4, 1),
+        Visual("slicer", f"{RATE} (supuesto)", (f"'{RATE}'[{RATE}]",), 4, 0, 4, 1),
+        Visual("slicer", f"{VALUE} (supuesto)", (f"'{VALUE}'[{VALUE}]",), 8, 0, 4, 1),
+        Visual("card", "Punto de equilibrio del panel", ("[Punto de equilibrio del panel]",), 0, 1, 4, 1),
+        Visual("card", "Contactos con el panel", ("[Contactos con el panel]",), 4, 1, 4, 1),
+        Visual("card", "Beneficio esperado con el panel (u.)", ("[Beneficio esperado con el panel (u.)]",), 8, 1, 4, 1),
+        Visual("lineChart", "Curva de ganancia en la prueba", ("fact_gain_curve[share_contacted]", "fact_gain_curve[share_captured]", "dim_method[method_es]"), 0, 2, 6, 7),
+        Visual("lineChart", "Curva de costo: beneficio por 1.000 clientes según el punto de equilibrio",
+               ("fact_cost_sensitivity[break_even]", "fact_cost_sensitivity[nb_per_1000]", "dim_method[method_es]"), 6, 2, 6, 7),
+    )),
+    Page("Seguimiento", (
+        Visual("slicer", "Fecha de cálculo", ("dim_as_of[as_of_label]",), 0, 0, 4, 1),
+        Visual("slicer", "Corte", ("dim_cut[cut_date]",), 4, 0, 4, 1),
+        Visual("card", "Volvieron (seguimiento)", ("[Volvieron (seguimiento)]",), 8, 0, 4, 1),
+        Visual("table", "Seguimiento de cada corte por fecha de cálculo", _TRACKING, 0, 1, 12, 5),
+        Visual("lineChart", "Bajas observadas y esperadas por corte", ("dim_cut[cut_date]", "fact_tracking[churned]", "fact_tracking[expected_churners]"), 0, 6, 12, 3),
+    )),
+    Page("Validación del modelo", (
+        Visual("table", "Criterios C01-C10", _CRITERIA, 0, 0, 7, 3),
+        Visual("barChart", "AUC por método", ("dim_method[method_es]", "fact_method_metrics[auc]"), 7, 0, 5, 3),
+        Visual("lineChart", "Calibración", ("fact_calibration[p_mean]", "fact_calibration[observed]", "dim_method[method_es]"), 0, 3, 4, 3),
+        Visual("table", "Sensibilidades de N, M y diciembre", ("fact_sensitivity[variant_es]", "fact_sensitivity[method_key]", "fact_sensitivity[auc]",
+                                                                "fact_sensitivity[diff_ci_low]", "fact_sensitivity[diff_ci_high]"), 4, 3, 4, 3),
+        Visual("matrix", "Tasa de bajas por N y M", ("fact_label_definition[n]", "fact_label_definition[m]", "fact_label_definition[churn_rate]"), 8, 3, 4, 3),
+        Visual("barChart", "Silencios que vuelven", ("fact_silence_return[n]", "fact_silence_return[return_share]"), 0, 6, 3, 3),
+        Visual("lineChart", "Tasa de bajas por corte (estacionalidad)", ("dim_cut[cut_date]", "dim_cut[churn_rate]"), 3, 6, 3, 3),
+        Visual("barChart", "Importancia media |SHAP|", ("dim_reason[feature_es]", "fact_importance[mean_abs_shap]"), 6, 6, 3, 3),
+        Visual("table", "Demostración de la fuga", ("fact_leakage[variable_es]", "fact_leakage[auc_valid_v2]", "fact_leakage[note_es]"), 9, 6, 3, 3),
+    )),
+    Page("Calidad y corridas", (
+        Visual("card", "Última fecha de cálculo", ("[Última fecha de cálculo]",), 0, 0, 3, 1),
+        Visual("card", "Estado de la última corrida", ("dim_pipeline_run[status]",), 3, 0, 3, 1),
+        Visual("card", "Reglas bloqueantes fallidas", ("[Reglas bloqueantes fallidas]",), 6, 0, 3, 1),
+        Visual("card", "Líneas de invitados", ("[Líneas de invitados]",), 9, 0, 3, 1),
+        Visual("table", "Reglas de validación", ("fact_validation[rule_id]", "fact_validation[name_es]", "fact_validation[severity]", "fact_validation[rows_affected]",
+                                                 "fact_validation[customers_affected]", "fact_validation[value_gbp]", "fact_validation[status]"), 0, 1, 12, 4),
+        Visual("table", "Corridas", ("dim_pipeline_run[run_key]", "dim_pipeline_run[delivery_id]", "dim_pipeline_run[as_of_date]", "dim_pipeline_run[status]",
+                                     "dim_pipeline_run[customers_scored]", "dim_pipeline_run[contacts]", "dim_pipeline_run[message]"), 0, 5, 12, 4),
+    )),
+)
+MODEL = SemanticModel(TABLES, RELATIONSHIPS, MEASURES, PARAMETERS, PAGES)
 
 
 def arrow_schema(table: Table) -> pa.Schema:
     """The Arrow schema of a table: its columns in order with their types."""
     return pa.schema([pa.field(c.name, ARROW_TYPES[c.dtype]) for c in table.columns])
+
+
+_COLUMN_REF = re.compile(r"(?<!['\w])([A-Za-z_][A-Za-z0-9_]*)\[([A-Za-z_][A-Za-z0-9_]*)\]")
+_PARAMETER_REF = re.compile(r"'([^']+)'\[([^\]]+)\]")
+_MEASURE_REF = re.compile(r"(?<![\w\]'])\[([^\[\]]+)\]")
+
+
+def dax_column_refs(dax: str) -> set[tuple[str, str]]:
+    """The ``table[column]`` references of a DAX expression (a table named without quotes)."""
+    return set(_COLUMN_REF.findall(dax))
+
+
+def dax_parameter_refs(dax: str) -> set[tuple[str, str]]:
+    """The ``'Table'[Column]`` references of a DAX expression: in this model, the what-if parameters (their names have spaces)."""
+    return set(_PARAMETER_REF.findall(dax))
+
+
+def dax_measure_refs(dax: str) -> set[str]:
+    """The ``[Measure]`` references of a DAX expression: a bracket not attached to a table or a parameter."""
+    return set(_MEASURE_REF.findall(_PARAMETER_REF.sub("", dax)))
+
+
+def _field_problem(model: SemanticModel, field: str) -> str | None:
+    """Why the field of a visual does not resolve, or None."""
+    if field.startswith("'"):
+        match = _PARAMETER_REF.fullmatch(field)
+        ok = match is not None and match.group(1) == match.group(2) and any(p.name_es == match.group(1) for p in model.parameters)
+        return None if ok else f"el parámetro {field} no existe"
+    if field.startswith("["):
+        return None if any(f"[{m.name_es}]" == field for m in model.measures) else f"la medida {field} no existe"
+    match = _COLUMN_REF.fullmatch(field)
+    if match is None:
+        return f"el campo {field!r} no es una columna, un parámetro ni una medida"
+    table, column = match.groups()
+    return None if any(t.name == table and column in t.column_names for t in model.tables) else f"la columna {field} no existe"
+
+
+def _measure_problems(model: SemanticModel) -> list[str]:
+    problems: list[str] = []
+    names = [m.name_es for m in model.measures]
+    problems += [f"la medida [{n}] está repetida" for n in sorted({n for n in names if names.count(n) > 1})]
+    tables = {t.name: set(t.column_names) for t in model.tables}
+    parameters = {p.name_es for p in model.parameters}
+    for m in model.measures:
+        if m.dax.count("(") != m.dax.count(")") or m.dax.count('"') % 2:
+            problems.append(f"[{m.name_es}]: paréntesis o comillas sin cerrar en el DAX")
+        problems += [f"[{m.name_es}]: {t}[{c}] no existe" for t, c in sorted(dax_column_refs(m.dax)) if c not in tables.get(t, ())]
+        problems += [f"[{m.name_es}]: el parámetro '{t}'[{c}] no existe" for t, c in sorted(dax_parameter_refs(m.dax)) if t not in parameters or c != t]
+        problems += [f"[{m.name_es}]: la medida [{r}] no existe" for r in sorted(dax_measure_refs(m.dax) - {m.name_es}) if r not in names]
+        if not m.format_string or not m.description_es:
+            problems.append(f"[{m.name_es}]: necesita un formato y una descripción")
+    for p in model.parameters:
+        if not p.start < p.end or p.step <= 0 or p.default not in p.values():
+            problems.append(f"el parámetro {p.name_es}: el valor por defecto {p.default} no está en {p.generateseries()}")
+    return problems
+
+
+def _page_problems(model: SemanticModel) -> list[str]:
+    problems: list[str] = []
+    for page in model.pages:
+        taken: dict[tuple[int, int], str] = {}
+        for v in page.visuals:
+            label = f"{page.name_es}: {v.title_es}"
+            problems += [f"{label}: {why}" for field in v.fields if (why := _field_problem(model, field)) is not None]
+            if v.w < 1 or v.h < 1 or v.x < 0 or v.y < 0 or v.x + v.w > PAGE_COLUMNS or v.y + v.h > PAGE_ROWS:
+                problems.append(f"{label}: sale de la grilla de {PAGE_COLUMNS} x {PAGE_ROWS}")
+                continue
+            cells = [(cx, cy) for cx in range(v.x, v.x + v.w) for cy in range(v.y, v.y + v.h)]
+            clash = next((taken[c] for c in cells if c in taken), None)
+            if clash is not None:
+                problems.append(f"{label}: se superpone con {clash}")
+            taken.update({c: v.title_es for c in cells})
+    return problems
 
 
 def validate_model(model: SemanticModel) -> list[str]:
@@ -292,4 +555,4 @@ def validate_model(model: SemanticModel) -> list[str]:
             problems.append(f"{r.rel_id}: {r.fact_table}[{r.fact_column}] no es una columna del tipo de {r.dim_table}[{r.dim_column}]")
         if (r.cardinality, r.cross_filter, r.active) != ("one_to_many", "single", True):
             problems.append(f"{r.rel_id} no es uno a varios, de filtro unidireccional y activa")
-    return problems
+    return problems + _measure_problems(model) + _page_problems(model)
