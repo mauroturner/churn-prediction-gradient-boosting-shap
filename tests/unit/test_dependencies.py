@@ -4,6 +4,7 @@ documented as such (AC39, project 03 B6), every pin is exact (D38, RNF01) and th
 from __future__ import annotations
 
 import ast
+import functools
 import importlib.metadata
 import re
 import shutil
@@ -87,10 +88,17 @@ def third_party_imports(root: Path, project: Path) -> dict[str, set[str]]:
     return found
 
 
+@functools.cache
+def installed_providers() -> dict[str, list[str]]:
+    """``importlib.metadata.packages_distributions()``, read once per session: it scans every installed distribution, and what is installed
+    does not change while the suite runs (D70)."""
+    return importlib.metadata.packages_distributions()
+
+
 def distribution_of(module: str) -> str:
     """The distribution that provides an importable top-level module (``sklearn`` -> ``scikit-learn``); the module's own name when
     nothing installed provides it, so a missing package is still reported by a recognisable name."""
-    providers = importlib.metadata.packages_distributions().get(module)
+    providers = installed_providers().get(module)
     return normalize(providers[0] if providers else module)
 
 

@@ -32,6 +32,7 @@ import io
 import math
 import re
 import zipfile
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -344,31 +345,70 @@ def _column_letter(index: int) -> str:
     return letters
 
 
+class _IllegalText(ValueError):
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.text = text
+
+
+def _is_empty(value) -> bool:
+    return value is None or value is pd.NA or value is pd.NaT or (isinstance(value, float) and math.isnan(value))
+
+
+def _cell_body(value) -> str | None:
+    """The cell after its reference (``<c r="A2"`` + this), or None for an empty value; ``_IllegalText`` for a text XML cannot hold."""
+    if _is_empty(value):
+        return None
+    if isinstance(value, datetime):
+        return f' s="{_DATETIME_STYLE}" t="n"><v>{"%.16g" % to_excel(value)}</v></c>'
+    if isinstance(value, (bool, np.bool_)):
+        return f' t="b"><v>{int(value)}</v></c>'
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return f' t="n"><v>{"%.16g" % value}</v></c>'
+    text = str(value)
+    if _ILLEGAL_XML.search(text):          # what openpyxl refused with IllegalCharacterError: XML 1.0 cannot hold these characters
+        raise _IllegalText(text)
+    space = ' xml:space="preserve"' if text != text.strip() else ""
+    return f' t="inlineStr"><is><t{space}>{xml_escape(text)}</t></is></c>'
+
+
 def _cell_xml(ref: str, value) -> str:
     """One cell as openpyxl writes it: a number with ``%.16g``, a date and time as its Excel serial number with the date-time style, a text as
     an inline string; an empty value (None, NaN, NaT or pd.NA) writes no cell, which reads back as None, as the empty cell pandas writes does;
     a control character that XML 1.0 cannot hold is refused, as openpyxl refused it."""
-    if value is None or value is pd.NA or value is pd.NaT or (isinstance(value, float) and math.isnan(value)):
-        return ""
-    if isinstance(value, datetime):
-        return f'<c r="{ref}" s="{_DATETIME_STYLE}" t="n"><v>{"%.16g" % to_excel(value)}</v></c>'
-    if isinstance(value, (bool, np.bool_)):
-        return f'<c r="{ref}" t="b"><v>{int(value)}</v></c>'
-    if isinstance(value, (int, float, np.integer, np.floating)):
-        return f'<c r="{ref}" t="n"><v>{"%.16g" % value}</v></c>'
-    text = str(value)
-    if _ILLEGAL_XML.search(text):          # what openpyxl refused with IllegalCharacterError: XML 1.0 cannot hold these characters
-        raise ValueError(f"la celda {ref} tiene un carácter ilegal en XML: {text!r}")
-    space = ' xml:space="preserve"' if text != text.strip() else ""
-    return f'<c r="{ref}" t="inlineStr"><is><t{space}>{xml_escape(text)}</t></is></c>'
+    try:
+        body = _cell_body(value)
+    except _IllegalText as error:
+        raise ValueError(f"la celda {ref} tiene un carácter ilegal en XML: {error.text!r}") from None
+    return "" if body is None else f'<c r="{ref}"{body}'
+
+
+def _column_bodies(letter: str, values: list) -> list[str | None]:
+    """``_cell_body`` of every value of a column, each distinct value formatted once (codes, countries, quantities and customers repeat; D70)."""
+    seen: dict[tuple, str | None] = {}
+    out = []
+    for number, value in enumerate(values, start=2):
+        if _is_empty(value):
+            out.append(None)
+            continue
+        key = (type(value), repr(value) if isinstance(value, (float, np.floating)) else value)   # -0.0 and 0.0 are equal keys otherwise
+        body = seen.get(key, False)
+        if body is False:
+            try:
+                body = seen[key] = _cell_body(value)
+            except _IllegalText as error:
+                raise ValueError(f"la celda {letter}{number} tiene un carácter ilegal en XML: {error.text!r}") from None
+        out.append(body)
+    return out
 
 
 def _sheet_xml(frame: pd.DataFrame) -> str:
     letters = [_column_letter(i) for i in range(1, len(frame.columns) + 1)]
     rows = [f'<row r="1">{"".join(_cell_xml(f"{c}1", name) for c, name in zip(letters, frame.columns, strict=True))}</row>']
-    columns = [frame[name].astype(object).tolist() for name in frame.columns]
-    for number, values in enumerate(zip(*columns, strict=True), start=2):
-        rows.append(f'<row r="{number}">{"".join(_cell_xml(f"{c}{number}", v) for c, v in zip(letters, values, strict=True))}</row>')
+    columns = [_column_bodies(letter, frame[name].astype(object).tolist()) for letter, name in zip(letters, frame.columns, strict=True)]
+    for number, bodies in enumerate(zip(*columns, strict=True), start=2):
+        cells = "".join('<c r="' + c + str(number) + '"' + b for c, b in zip(letters, bodies, strict=True) if b is not None)
+        rows.append(f'<row r="{number}">{cells}</row>')
     return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{_MAIN_NS}">'
             f'<dimension ref="A1:{letters[-1]}{len(frame) + 1}"/><sheetData>{"".join(rows)}</sheetData></worksheet>')
 
@@ -561,29 +601,69 @@ def _event_order(r: dict) -> tuple:
     return (r["ts"], r["role"] != "purchase", r["order"])
 
 
+@dataclass(frozen=True)
+class _NettingLines:
+    """The purchase and cancellation lines of one ``lines`` list grouped once for every date (D70): the days of each customer from the
+    products it never cancelled, sorted, and the lines of each customer and product that a cancellation touches, in event order."""
+
+    uncancelled_days: dict[int, list[date]]
+    cancelled_keys: dict[tuple[int, str], list[dict]]
+
+
+_PREPARED: dict[int, tuple[list[dict], _NettingLines]] = {}
+
+
+def _prepared(lines: list[dict]) -> _NettingLines:
+    cached = _PREPARED.get(id(lines))
+    if cached is not None and cached[0] is lines:
+        return cached[1]
+    by_key: dict[tuple[int, str], list[dict]] = {}
+    for r in lines:
+        if r["role"] in ("purchase", "cancellation"):
+            by_key.setdefault((r["customer"], r["code"]), []).append(r)
+    uncancelled: dict[int, set[date]] = {}
+    cancelled: dict[tuple[int, str], list[dict]] = {}
+    for key, group in by_key.items():
+        if any(r["role"] == "cancellation" for r in group):
+            cancelled[key] = group
+        else:
+            uncancelled.setdefault(key[0], set()).update(r["invoice_date"] for r in group if r["qty"] > 0)
+    prepared = _NettingLines({c: sorted(d) for c, d in uncancelled.items()}, cancelled)
+    _PREPARED.clear()                     # one list at a time: the fixture's truth, or the oracle of a test
+    _PREPARED[id(lines)] = (lines, prepared)
+    return prepared
+
+
 def net_purchase_days(lines: list[dict], as_of: date) -> dict[int, set[date]]:
     """Each customer's days with a net purchase, with the cancellations known on `as_of`: last in, first out by customer and product.
-    `lines` must be in ``_event_order``."""
-    known = [r for r in lines if r["invoice_date"] <= as_of and r["role"] in ("purchase", "cancellation")]
-    stacks: dict[tuple[int, str], list[list]] = {}
-    for r in known:
-        key = (r["customer"], r["code"])
-        if r["role"] == "purchase":
-            stacks.setdefault(key, []).append([r, r["qty"]])
-            continue
-        left = -r["qty"]
-        stack = stacks.get(key, [])
-        while left > 0 and stack:
-            take = min(left, stack[-1][1])
-            stack[-1][1] -= take
-            left -= take
-            if stack[-1][1] == 0:
-                stack.pop()
+    `lines` must be in ``_event_order``.
+
+    A product that a customer never cancelled keeps every purchase, so its days are those dated on or before `as_of`; only the lines of a
+    customer and product with a cancellation go through the stack, in event order. The grouping is done once per list (D70)."""
+    prepared = _prepared(lines)
     days: dict[int, set[date]] = {}
-    for stack in stacks.values():
+    for customer, sorted_days in prepared.uncancelled_days.items():
+        known = bisect_right(sorted_days, as_of)
+        if known:
+            days[customer] = set(sorted_days[:known])
+    for key, group in prepared.cancelled_keys.items():
+        stack: list[list] = []
+        for r in group:
+            if r["invoice_date"] > as_of:
+                continue
+            if r["role"] == "purchase":
+                stack.append([r, r["qty"]])
+                continue
+            left = -r["qty"]
+            while left > 0 and stack:
+                take = min(left, stack[-1][1])
+                stack[-1][1] -= take
+                left -= take
+                if stack[-1][1] == 0:
+                    stack.pop()
         for r, remaining in stack:
             if remaining > 0:
-                days.setdefault(r["customer"], set()).add(r["invoice_date"])
+                days.setdefault(key[0], set()).add(r["invoice_date"])
     return days
 
 
