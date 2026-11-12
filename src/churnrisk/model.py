@@ -18,11 +18,14 @@ Everything here learns from the labelled rows of the launch (``split.labelled_ro
 
 ``predict_risk`` gives the calibrated risk and refuses a matrix whose columns are not exactly the model's set (M02) and any probability that
 is not finite or not in [0, 1] (M04). ``log_odds`` gives the uncalibrated log-odds, the one SHAP explains: the isotonic map is monotone and
-does not reorder it (D15). F1 is never used to choose anything here (a static test reads this file).
+does not reorder it (D15). No F1 or F-beta score is used to choose anything here: neither this module nor ``threshold.py`` imports one or
+names scikit-learn's F1 scorer (``tests/unit/test_threshold.py::test_neither_the_threshold_nor_the_model_imports_f1`` reads both sources); the only F1 of
+the project is the one D61's test computes to show what the cost threshold avoids.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -40,6 +43,8 @@ from churnrisk.config import SealedConfig
 from churnrisk.features import COUNTRY, FEATURE_SETS, LeakageError, build_matrix, check_matrix, country_groups
 from churnrisk.schema import FEATURE_COLUMNS
 from churnrisk.split import require_both_classes
+
+logger = logging.getLogger(__name__)
 
 TIE_TOLERANCE = 1e-6          # candidates within this log loss of the best are a tie, and the simplest of them is selected
 SET_RANK: dict[str, int] = {name: rank for rank, name in enumerate(FEATURE_SETS)}   # f0 < f1 < f2
@@ -135,7 +140,9 @@ def select(fitted: Sequence[tuple[Candidate, Pipeline]], x_v1: Mapping[str, pd.D
 def check_tripwire(selection: Selection, view: SealedConfig) -> None:
     """M01: stop the launch if the AUC of the selected candidate on V1 reaches ``leak_tripwire_auc`` (D41). Raises ``LeakageError``."""
     limit = view.criteria.leak_tripwire_auc
-    if not selection.auc_v1 < limit:
+    if not selection.auc_v1 < limit:              # a NaN AUC is not below the limit either: it stops the launch too (D59)
+        logger.error("M01: the AUC on V1 of the selected candidate (set %s) is %.4f, not below the tripwire %s: the launch stops",
+                     selection.chosen.feature_set, selection.auc_v1, limit)
         raise LeakageError(
             f"M01: el AUC del candidato elegido en V1 es {selection.auc_v1:.4f}, igual o mayor que el umbral de {limit}: posible fuga de información "
             f"(el conjunto {selection.chosen.feature_set}). El lanzamiento se detiene (docs/runbook.md, R5)"

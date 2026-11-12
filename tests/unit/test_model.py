@@ -135,3 +135,17 @@ def test_m02_and_m04_refuse_a_wrong_matrix_and_a_probability_out_of_range(launch
         monkeypatch.setattr(type(trained.model.calibrated), "predict_proba", lambda self, _x, v=bad: np.column_stack([np.full(5, 0.5), np.r_[0.2, v, 0.2, 0.2, 0.2]]))
         with pytest.raises(ValueError, match="M04.*posición 1"):
             predict_risk(trained.model, x)
+
+
+def selection_with_auc(auc: float):
+    chosen = Candidate("f1", 0.1, 15, 20)
+    return model_module.Selection(chosen, None, ((chosen, 0.5),), auc)
+
+
+def test_the_tripwire_logs_the_stop_with_the_auc_the_limit_and_the_set(cfg, caplog):
+    """R4-model-tripwire-no-log: M01 stopping the launch is logged before ``LeakageError`` reaches the caller."""
+    view = SealedConfig.of(cfg, SHA)
+    with caplog.at_level("ERROR", logger="churnrisk.model"), pytest.raises(LeakageError, match="M01"):
+        model_module.check_tripwire(selection_with_auc(0.99), view)
+    messages = [r.getMessage() for r in caplog.records if r.name == "churnrisk.model"]
+    assert any("M01" in m and "0.9900" in m and str(view.criteria.leak_tripwire_auc) in m and "f1" in m for m in messages), messages

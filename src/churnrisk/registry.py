@@ -64,7 +64,9 @@ def save_artifact(bundle: ModelBundle, path: Path) -> str:
     bytes written. If it cannot be serialized, nothing is written and a file already at `path` is left as it was."""
     data = pickle.dumps(bundle, protocol=PICKLE_PROTOCOL)
     write_atomic(Path(path), data)
-    return artifact_sha256(data)
+    digest = artifact_sha256(data)
+    logger.info("artifact %s written: sha256 %s, %d bytes", Path(path).name, digest, len(data))
+    return digest
 
 
 def load_artifact(path: Path, expected_sha256: str) -> ModelBundle:
@@ -264,6 +266,8 @@ def _create_exclusive(path: Path, data: bytes) -> bool:
     try:
         with os.fdopen(handle, "wb") as out:
             out.write(data)
+            out.flush()
+            os.fsync(out.fileno())         # the bytes reach the disk before the seal's name points at them, as in _create_without_link
         try:
             os.link(name, path)
             created = True

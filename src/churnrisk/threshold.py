@@ -151,10 +151,16 @@ def _ranking(score: np.ndarray) -> np.ndarray:
 
 
 def gain_curve(score: np.ndarray, y: np.ndarray, points: int) -> pd.DataFrame:
-    """The share of the churners held by the top ``ceil(i / points x n)`` customers by score, for i = 1 .. `points`, and its lift."""
+    """The share of the churners held by the top ``ceil(i / points x n)`` customers by score, for i = 1 .. `points`, and its lift.
+
+    Every point holds at least one customer: with more points than customers the points repeat, and a `points` so large that the first point
+    would hold none (``n / points`` rounds to 0 at 9 decimals) is refused before any point is computed, since that point would read the last
+    customer and divide its lift by a share of 0."""
     score, y = _check(score, y)
     if points < 1:
         raise ValueError("la curva de ganancia necesita al menos un punto")
+    if math.ceil(round(1 / points * len(y), 9)) < 1:      # the first point, computed as the loop computes it
+        raise ValueError(f"la curva de ganancia con {points} puntos y {len(y)} clientes deja puntos sin clientes: cada punto necesita al menos un cliente")
     churners = int(y.sum())
     if churners == 0:
         raise ValueError("la curva de ganancia necesita al menos una baja")

@@ -111,6 +111,7 @@ def test_a_failing_control_of_the_cuts_rolls_the_build_back(cfg, loaded_masters,
         build_cuts(conn, date(2011, 8, 31), SealedConfig.of(cfg, SHA), "r2")
     assert {c.check_id for c in error.value.checks if c.violations} >= {"chk_label_known_after_window", "chk_label_has_features"}
     assert "99999" not in str(error.value), "a control names a cut and counts customers: it never shows a customer number"
+    assert str(error.value).startswith("La construcción de los cortes se deshizo"), "the error names the step that was undone, not the load"
     conn.close()
     assert file_sha(path) == before
 

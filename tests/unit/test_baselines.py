@@ -231,3 +231,24 @@ def test_a_block_with_one_class_is_refused_before_calibrating_or_choosing(cfg):
     with pytest.raises(ValueError, match="b9"):
         strongest(scores, labelled, ("b9_unknown",))
     assert dataclasses.is_dataclass(fit_baselines(labelled, PARAMS, view))
+
+
+def test_scores_that_are_not_finite_are_refused_before_any_calibrator_or_b_star(cfg, monkeypatch):
+    """R3-fit-baselines-finite-check-ordering: a score that is not finite stops ``fit_baselines`` before anything learns from it."""
+    from churnrisk import baselines
+
+    labelled = labelled_frame()
+    real = baselines.baseline_scores
+
+    def with_inf(*args, **kwargs):
+        scores = real(*args, **kwargs)
+        scores.iloc[0, 0] = np.inf
+        return scores
+
+    learned = []
+    monkeypatch.setattr(baselines, "baseline_scores", with_inf)
+    monkeypatch.setattr(baselines, "fit_calibrators", lambda *a, **k: learned.append("calibrators"))
+    monkeypatch.setattr(baselines, "strongest", lambda *a, **k: learned.append("strongest"))
+    with pytest.raises(ValueError, match="no son finitos"):
+        fit_baselines(labelled, PARAMS, SealedConfig.of(cfg, SHA))
+    assert learned == []

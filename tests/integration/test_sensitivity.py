@@ -102,3 +102,34 @@ def test_the_definition_of_the_label_on_the_training_cuts_is_stored_with_the_val
     assert [n for n, _s, _r in silences] == [60, 90, 120]
     assert dict((n, s) for n, s, _r in silences)[90] == int(train["churned"].sum()), "the silences of N = 90 are the churners of the training"
     assert all(0 < share < 1 for _n, _s, share in silences)
+
+
+def test_a_variant_whose_block_keeps_no_cut_is_refused_naming_the_variant_and_rows_of_no_cut_is_empty(quick_history, monkeypatch):
+    """R3-rows-of-empty-cuts: ``rows_of`` of no cut is an empty frame with the columns of the rows (``pd.concat`` of nothing raised), and
+    ``run_variants`` refuses a variant whose plan leaves a block without cuts with a message that names the variant and the block."""
+    import dataclasses
+
+    from churnrisk import sensitivity
+    from churnrisk.features import read_features
+    from churnrisk.schema import FEATURE_COLUMNS
+    from churnrisk.sensitivity import KnownDays, rows_of
+
+    view = quick_history.view
+    as_of = quick_history.runs[-1].spec.as_of
+    conn = connect(quick_history.runs[-1].warehouse)
+    try:
+        empty = rows_of(KnownDays(conn, as_of), view, (), view.label.horizon_days, view.label.active_days, read_features(conn))
+        assert empty.empty and list(empty.columns) == ["churned", *FEATURE_COLUMNS] and list(empty.index.names) == ["cut_date", "customer_id"]
+        real_plan = sensitivity.variant_plan
+        monkeypatch.setattr(sensitivity, "variant_plan", lambda v, name: dataclasses.replace(real_plan(v, name), test=()))
+        registered = sensitivity_bundle(conn, quick_history)
+        with pytest.raises(ValueError, match=r"n60.*test"):
+            run_variants(conn, view, registered.bundle, registered.bundle.model.candidate, read_seal(quick_history.cfg.paths.seal), as_of)
+    finally:
+        conn.close()
+
+
+def sensitivity_bundle(conn, history):
+    from churnrisk.launch import load_registered
+
+    return load_registered(conn, history.cfg)

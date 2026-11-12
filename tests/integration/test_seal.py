@@ -7,7 +7,9 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import logging
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -176,3 +178,50 @@ def test_without_a_registered_model_only_the_launch_trains(quick_history, launch
     finally:
         conn.close()
     assert not cfg.paths.seal.exists() and not cfg.paths.models_dir.exists()
+
+
+def test_a_later_run_without_a_seal_file_says_m05_was_not_compared(quick_history, tmp_path):
+    """R3-2 of U16: with no seal on disk (``seal_state`` ``none``) there is nothing to compare the configuration with, so the run says M05 was
+    not evaluated (None), never that it passed."""
+    cfg = quick_config(tmp_path / "no_seal")
+    cfg.paths.warehouse.parent.mkdir(parents=True)
+    shutil.copy2(quick_history.warehouse, cfg.paths.warehouse)
+    shutil.copytree(quick_history.cfg.paths.models_dir, cfg.paths.models_dir)
+    conn = connect(cfg.paths.warehouse)
+    try:
+        fit = fit_model(conn, cfg, run_key="r9", as_of=quick_history.runs[-1].spec.as_of, source_sha256=quick_history.view.source_sha256)
+    finally:
+        conn.close()
+    assert (fit["mode"], fit["seal_state"], fit["m05_passed"]) == ("reuse", "none", None)
+    assert not cfg.paths.seal.exists()
+
+
+def test_a_registration_that_fails_is_logged_with_its_run_and_cause_after_the_rollback(quick_history, launch_cuts, tmp_path, caplog):
+    """R4-launch-silent-rollback: when the registry insert fails, the launch rolls the transaction back and only then logs the run and the
+    cause, as ``score_cut`` does; nothing is registered."""
+    cfg = quick_config(tmp_path / "refused")
+    cfg.paths.warehouse.parent.mkdir(parents=True)
+    shutil.copy2(launch_cuts, cfg.paths.warehouse)
+    cfg.paths.seal.parent.mkdir(parents=True)
+    shutil.copy2(quick_history.cfg.paths.seal, cfg.paths.seal)
+    conn = connect(cfg.paths.warehouse)
+    seen = []
+
+    class Watch(logging.Handler):
+        def emit(self, record):
+            seen.append((record.getMessage(), conn.in_transaction))
+
+    watch = Watch(level=logging.WARNING)
+    logging.getLogger("churnrisk.launch").addHandler(watch)
+    try:
+        from churnrisk.warehouse import apply_schema
+
+        apply_schema(conn)
+        conn.execute("CREATE TRIGGER refuse_registry BEFORE INSERT ON model_registry BEGIN SELECT RAISE(ABORT, 'registry refused by the test'); END")
+        with pytest.raises(sqlite3.IntegrityError, match="registry refused by the test"):
+            fit_model(conn, cfg, run_key="r1", as_of=cfg.deliveries.launch_as_of, source_sha256=quick_history.view.source_sha256)
+        assert conn.execute("SELECT COUNT(*) FROM model_registry").fetchone()[0] == 0
+    finally:
+        logging.getLogger("churnrisk.launch").removeHandler(watch)
+        conn.close()
+    assert any("r1" in message and "registry refused by the test" in message and not open_tx for message, open_tx in seen), seen

@@ -123,3 +123,23 @@ def test_the_error_names_the_file_and_both_fingerprints_but_never_its_folder(tmp
     message = str(error.value)
     assert "v1.pkl" in message and registered in message and sha(artifact.read_bytes()) in message
     assert str(artifact.parent) not in message
+
+
+def test_the_seal_bytes_are_flushed_to_disk_before_they_are_linked_to_their_name(tmp_path, monkeypatch):
+    """R3-5 of U16: the temporary file of an exclusive creation is fsync'd before ``os.link`` gives it the seal's name, as the path without
+    hard links does, so a power cut never leaves a seal name over bytes that never reached the disk."""
+    events = []
+    real_fsync, real_link = registry.os.fsync, registry.os.link
+    monkeypatch.setattr(registry.os, "fsync", lambda fd: (events.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(registry.os, "link", lambda src, dst: (events.append("link"), real_link(src, dst))[1])
+    assert registry._create_exclusive(tmp_path / "seal.json", b'{"a": 1}\n') is True
+    assert events[:2] == ["fsync", "link"] and (tmp_path / "seal.json").read_bytes() == b'{"a": 1}\n'
+
+
+def test_saving_an_artifact_logs_its_file_its_digest_and_its_size(tmp_path, caplog):
+    """R4-registry-save-no-log: the write of an artifact is logged with its file name, its SHA-256 and its size in bytes."""
+    path = tmp_path / "models" / "v1.pkl"
+    with caplog.at_level("INFO", logger="churnrisk.registry"):
+        digest = save_artifact(small_bundle(), path)
+    messages = [r.getMessage() for r in caplog.records if r.name == "churnrisk.registry"]
+    assert any("v1.pkl" in m and digest in m and f"{path.stat().st_size} bytes" in m for m in messages), messages

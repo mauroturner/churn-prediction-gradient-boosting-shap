@@ -7,11 +7,15 @@ the calculation date, with the one rule of ``tracking.customer_returns``), rebui
 runs the controls of ``sql/checks/model``, all in one transaction: a control with rows undoes it. ``export_star_schema`` writes every table of
 the semantic model with its Arrow schema and the run, the calculation date, the source and the attribution as file metadata: the versioned
 tables to ``outputs/powerbi/`` and the customer-level fact, which carries the customer number, to ``outputs/private/`` only (D26). A file over
-25 MB is an error before anything is written; each file is replaced atomically.
+25 MB is an error before anything is written; each file is replaced atomically. Each folder's ``manifest.json`` (``STAR_MANIFEST``) is removed
+before its first file is written and written again after its last one: the run, the date, the source, the attribution and each file's name,
+bytes and SHA-256 (RNF05, D69). ``verify_star_schema`` checks a folder against it, so a set left half written by a failure has no manifest
+and is refused.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -41,6 +45,8 @@ logger = logging.getLogger(__name__)
 MAX_PARQUET_BYTES = 25 * 1024 * 1024        # a versioned file stays under GitHub's limits (RNF10)
 STAR_PREFIX = "star_"
 METADATA_KEYS = ("churnrisk.run_key", "churnrisk.as_of", "churnrisk.source_sha256", "churnrisk.attribution")
+STAR_MANIFEST = "manifest.json"
+MANIFEST_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -122,7 +128,7 @@ def build_powerbi_marts(conn: sqlite3.Connection, cfg: PipelineConfig, source_sh
         params = {"first_date": view.deliveries.first_date.isoformat(), "last_date": view.deliveries.last_date.isoformat(),
                   "min_cell_customers": cfg.site.min_cell_customers, "reasons_per_score": reasons}
         rebuild_marts(conn, "powerbi", params)
-        _fail_on(run_checks(conn, "model", params), f"star model at {as_of}")
+        _fail_on(run_checks(conn, "model", params), f"star model at {as_of}", "La exportación del modelo estrella")
         conn.execute("COMMIT")
     except BaseException:
         if conn.in_transaction:
@@ -162,6 +168,34 @@ def _serialize(conn: sqlite3.Connection, table: Table, metadata: dict[str, str])
     return sink.getvalue().to_pybytes()
 
 
+def _manifest_text(meta: ExportMeta, files: list[dict]) -> str:
+    document = {"version": MANIFEST_VERSION, **dict(zip(("run_key", "as_of", "source_sha256", "attribution"), meta.metadata().values(), strict=True)),
+                "files": files}
+    return json.dumps(document, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
+
+
+def verify_star_schema(folder: Path) -> list[str]:
+    """What does not match in `folder` against its ``manifest.json`` (empty when everything does): a missing or unreadable manifest, a listed
+    file that is missing or whose bytes or SHA-256 differ, and a Parquet file the manifest does not list."""
+    folder = Path(folder)
+    try:
+        manifest = json.loads((folder / STAR_MANIFEST).read_text(encoding="utf-8"))
+        listed = {entry["name"]: entry for entry in manifest["files"]}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return [f"{folder / STAR_MANIFEST}: no hay un manifiesto legible ({type(error).__name__}); el conjunto no se usa"]
+    problems = []
+    for name, entry in listed.items():
+        path = folder / name
+        if not path.is_file():
+            problems.append(f"{name}: falta el archivo que lista el manifiesto")
+            continue
+        data = path.read_bytes()
+        if len(data) != entry.get("bytes") or hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+            problems.append(f"{name}: los bytes no son los del manifiesto")
+    problems += [f"{path.name}: el manifiesto no lo lista" for path in sorted(folder.glob("*.parquet")) if path.name not in listed]
+    return problems
+
+
 def export_star_schema(conn: sqlite3.Connection, out_dir: Path, private_dir: Path, model: SemanticModel, meta: ExportMeta, cfg: PipelineConfig) -> list[Path]:
     """Rebuild the marts and write one Parquet file per table of `model`: the versioned ones to `out_dir`, the private one to `private_dir`.
     Returns the paths in the model's order. The model is checked first and every file is serialized and measured before any is written."""
@@ -177,11 +211,19 @@ def export_star_schema(conn: sqlite3.Connection, out_dir: Path, private_dir: Pat
         if not table.private and len(data) > MAX_PARQUET_BYTES:
             raise ValueError(f"{table.name}.parquet pesa {len(data)} bytes, más de {MAX_PARQUET_BYTES}: no se escribe nada")
         payloads[table.name] = data
+    folders = {False: Path(out_dir), True: Path(private_dir)}
+    for folder in folders.values():               # a set being rewritten has no manifest until its last file is written
+        (folder / STAR_MANIFEST).unlink(missing_ok=True)
     paths = []
     for table in model.tables:
-        path = Path(private_dir if table.private else out_dir) / f"{table.name}.parquet"
+        path = folders[table.private] / f"{table.name}.parquet"
         write_atomic(path, payloads[table.name])
         paths.append(path)
+    for private, folder in folders.items():
+        files = [{"name": f"{t.name}.parquet", "bytes": len(payloads[t.name]), "sha256": hashlib.sha256(payloads[t.name]).hexdigest()}
+                 for t in model.tables if t.private == private]
+        if files:
+            write_atomic(folder / STAR_MANIFEST, _manifest_text(meta, files))
     logger.info("star model at %s: %d versioned files in %s and %d private in %s", meta.as_of, sum(not t.private for t in model.tables), out_dir,
                 sum(t.private for t in model.tables), private_dir)
     return paths

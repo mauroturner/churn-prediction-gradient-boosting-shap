@@ -117,8 +117,8 @@ class Baselines:
 def fit_baselines(labelled: pd.DataFrame, params: BGNBDParams, view: SealedConfig) -> Baselines:
     """The baselines of the launch from the labelled rows (``split.labelled_rows``) and the BG/NBD parameters of the launch."""
     scores = baseline_scores(labelled[list(FEATURE_COLUMNS)], params, view.label.horizon_days)
+    if not np.isfinite(scores.to_numpy()).all():               # checked before anything learns from the scores
+        raise ValueError("hay puntajes de las líneas base que no son finitos")
     calibrators = fit_calibrators(scores, labelled)
     b_star, aucs = strongest(scores, labelled, view.baselines.strongest_candidates)
-    if not np.isfinite(scores.to_numpy()).all():
-        raise ValueError("hay puntajes de las líneas base que no son finitos")
     return Baselines(scores, calibrators, b_star, aucs, params)

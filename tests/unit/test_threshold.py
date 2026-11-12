@@ -179,3 +179,13 @@ def test_the_threshold_of_the_launch_comes_from_its_v2_risks(cfg, launch_model):
         Costs(0.0, 0.2, 50.0)
     with pytest.raises(ValueError, match=r"\(0, 1\]"):
         Costs(5.0, 1.5, 50.0)
+
+
+def test_a_gain_curve_whose_first_point_would_hold_no_customer_is_refused_before_any_point():
+    """R3-gain-curve-zero-share: ``ceil(round(i / points x n, 9))`` is 0 only when ``n / points`` rounds to 0 at 9 decimals; that point would
+    read ``captured[-1]`` (the last customer) and divide the lift by a share of 0, so it is refused before any point is computed. With more points
+    than customers each point still holds at least one customer (points repeat)."""
+    with pytest.raises(ValueError, match="al menos un cliente"):
+        gain_curve(np.array([0.9]), np.array([1]), 3_000_000_000)
+    small = gain_curve(np.array([0.9, 0.1, 0.5]), np.array([1, 0, 1]), 10)
+    assert small["contacted"].min() == 1 and len(small) == 10 and small["lift"].notna().all()

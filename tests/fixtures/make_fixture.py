@@ -333,6 +333,9 @@ _STYLES = (
 )
 
 
+_ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")   # openpyxl ILLEGAL_CHARACTERS_RE
+
+
 def _column_letter(index: int) -> str:
     letters = ""
     while index:
@@ -343,8 +346,9 @@ def _column_letter(index: int) -> str:
 
 def _cell_xml(ref: str, value) -> str:
     """One cell as openpyxl writes it: a number with ``%.16g``, a date and time as its Excel serial number with the date-time style, a text as
-    an inline string; an empty value (None or NaN) writes no cell, which reads back as None, as the empty cell pandas writes does."""
-    if value is None or (isinstance(value, float) and math.isnan(value)) or value is pd.NaT:
+    an inline string; an empty value (None, NaN, NaT or pd.NA) writes no cell, which reads back as None, as the empty cell pandas writes does;
+    a control character that XML 1.0 cannot hold is refused, as openpyxl refused it."""
+    if value is None or value is pd.NA or value is pd.NaT or (isinstance(value, float) and math.isnan(value)):
         return ""
     if isinstance(value, datetime):
         return f'<c r="{ref}" s="{_DATETIME_STYLE}" t="n"><v>{"%.16g" % to_excel(value)}</v></c>'
@@ -353,6 +357,8 @@ def _cell_xml(ref: str, value) -> str:
     if isinstance(value, (int, float, np.integer, np.floating)):
         return f'<c r="{ref}" t="n"><v>{"%.16g" % value}</v></c>'
     text = str(value)
+    if _ILLEGAL_XML.search(text):          # what openpyxl refused with IllegalCharacterError: XML 1.0 cannot hold these characters
+        raise ValueError(f"la celda {ref} tiene un carácter ilegal en XML: {text!r}")
     space = ' xml:space="preserve"' if text != text.strip() else ""
     return f'<c r="{ref}" t="inlineStr"><is><t{space}>{xml_escape(text)}</t></is></c>'
 

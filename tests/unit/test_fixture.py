@@ -290,3 +290,17 @@ def test_the_threshold_gain_and_metrics_hand_cases_agree_with_a_brute_force_read
     ece = sum((bins == b).sum() / len(mp) * abs(mp[bins == b].mean() - my[bins == b].mean()) for b in np.unique(bins))
     assert math.isclose(ece, m["ece"])
     assert math.isclose(((mp >= 0.5) * (10 * my - 5)).sum(), m["net_benefit_at_0_5"])
+
+
+def test_the_cell_writer_treats_pd_na_as_empty_and_refuses_illegal_xml_characters():
+    """s2a R3-na-missing-value-coverage and R3-illegal-xml-char-coverage: the hand-written cell writer does what openpyxl did, an empty cell
+    for every missing value (``pd.NA`` too) and ``IllegalCharacterError`` for a control character XML cannot hold."""
+    import pandas as pd
+
+    from tests.fixtures.make_fixture import _cell_xml
+
+    assert _cell_xml("A1", pd.NA) == _cell_xml("A1", None) == _cell_xml("A1", float("nan")) == ""
+    for bad in ("bell\x07", "\x00", "a\x1fb", "\x0b"):
+        with pytest.raises(ValueError, match="ilegal"):
+            _cell_xml("A1", bad)
+    assert "<t>tab\tand new\nline</t>" in _cell_xml("A1", "tab\tand new\nline")

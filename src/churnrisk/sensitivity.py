@@ -91,6 +91,9 @@ class KnownDays:
 def rows_of(known: KnownDays, view: SealedConfig, cuts: tuple[date, ...], n: int, m: int, stored: pd.DataFrame) -> pd.DataFrame:
     """The rows of `cuts` with M = `m` and N = `n`: index ``(cut_date, customer_id)``, ``churned`` and the features. With the design's M the
     population and its features are those the warehouse holds (`stored`); with another M they are computed from what is known on ``c - 1``."""
+    if not cuts:                         # pd.concat of nothing raises: no cut gives no row, with the columns of the rows
+        index = pd.MultiIndex.from_arrays([[], []], names=["cut_date", "customer_id"])
+        return pd.DataFrame(columns=["churned", *FEATURE_COLUMNS], index=index)
     parts = []
     for cut in cuts:
         features = stored.xs(cut, level="cut_date") if m == view.label.active_days else known.features(cut, m, view)
@@ -112,6 +115,9 @@ def run_variants(conn: sqlite3.Connection, view: SealedConfig, bundle, candidate
     out = []
     for variant in view.sensitivity.variants:
         plan = variant_plan(view, variant)
+        for block, cuts in (("train", plan.train), ("valid_v1", plan.valid_v1), ("test", plan.test)):
+            if not cuts:
+                raise ValueError(f"la variante {variant} no tiene cortes de {block} que cumplan su regla (N = {plan.n}): no se puede evaluar")
         train, v1, test = (rows_of(known, view, cuts, plan.n, plan.m, stored) for cuts in (plan.train, plan.valid_v1, plan.test))
         for name, rows in (("train", train), ("valid_v1", v1), (f"test de {variant}", test)):
             require_both_classes(rows["churned"].to_numpy(), name)

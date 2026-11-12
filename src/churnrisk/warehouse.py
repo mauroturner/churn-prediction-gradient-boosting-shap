@@ -76,11 +76,11 @@ class DeliveryAlreadyLoadedError(RuntimeError):
 class CheckFailedError(RuntimeError):
     """A control returned rows: the transaction was rolled back."""
 
-    def __init__(self, checks: list[CheckResult]) -> None:
-        self.checks = checks
+    def __init__(self, checks: list[CheckResult], step: str = "La carga") -> None:
+        self.checks, self.step = checks, step
         failing = [c for c in checks if c.violations]
         detail = "; ".join(f"{c.check_id}: {c.violations} filas, por ejemplo {c.sample[:2]}" for c in failing)
-        super().__init__(f"La carga se deshizo; controles con filas que los violan: {detail}")
+        super().__init__(f"{step} se deshizo; controles con filas que los violan: {detail}")
 
 
 class SchemaDriftError(RuntimeError):
@@ -236,14 +236,14 @@ def run_checks(conn: sqlite3.Connection, group: Literal["load", "cuts", "model"]
     return results
 
 
-def _fail_on(checks: list[CheckResult], what: str) -> None:
+def _fail_on(checks: list[CheckResult], what: str, step: str = "La carga") -> None:
     """``CheckFailedError`` if a control has rows. It is raised inside the caller's open transaction, so the log says which control failed;
     the caller logs «rolled back» only once its ROLLBACK has run."""
     failing = [c for c in checks if c.violations]
     for c in failing:
         logger.error("%s: control %s failed, violations=%d sample=%s", what, c.check_id, c.violations, c.sample)
     if failing:
-        raise CheckFailedError(checks)
+        raise CheckFailedError(checks, step)
 
 
 # --- load ------------------------------------------------------------------------------------------------------------------
@@ -320,7 +320,7 @@ def rebuild_staging(conn: sqlite3.Connection, as_of: date) -> list[CheckResult]:
         apply_schema(conn)
         _rebuild(conn, as_of)
         checks = run_checks(conn, "load", sql_params(as_of))
-        _fail_on(checks, f"staging at {as_of}")
+        _fail_on(checks, f"staging at {as_of}", "La preparación de las líneas (staging)")
         conn.execute("COMMIT")
     except BaseException:
         if conn.in_transaction:

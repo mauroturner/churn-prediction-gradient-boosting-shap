@@ -112,7 +112,7 @@ def build_cuts(conn: sqlite3.Connection, as_of: date, view: SealedConfig, run_ke
         )
         rebuild_marts(conn, "ops", sql_params(as_of))
         checks = run_checks(conn, "cuts", {**sql_params(as_of), "horizon_days": n, "active_days": m})
-        _fail_on(checks, f"cuts {run_key} at {as_of}")
+        _fail_on(checks, f"cuts {run_key} at {as_of}", "La construcción de los cortes")
         rows = {table: int(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE run_key = ?", (run_key,)).fetchone()[0]) for table in ("cut_features", "cut_labels")}
         conn.execute("COMMIT")
     except BaseException:

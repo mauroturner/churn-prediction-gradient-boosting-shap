@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS model_scores (
     model_version TEXT NOT NULL,
     risk REAL NOT NULL CHECK (risk >= 0 AND risk <= 1),
     log_odds REAL NOT NULL,
-    threshold REAL NOT NULL,
+    threshold REAL NOT NULL CHECK (threshold >= 0 AND threshold <= 1),
     is_contact INTEGER NOT NULL CHECK (is_contact IN (0, 1)),
     PRIMARY KEY (cut_date, customer_id)
 );
@@ -60,6 +60,22 @@ END;
 CREATE TRIGGER IF NOT EXISTS model_registry_no_delete BEFORE DELETE ON model_registry
 BEGIN
     SELECT RAISE(ABORT, 'model_registry es de solo inserción: el modelo del lanzamiento no cambia');
+END;
+
+CREATE TRIGGER IF NOT EXISTS baseline_calibrators_no_update BEFORE UPDATE ON baseline_calibrators
+BEGIN
+    SELECT RAISE(ABORT, 'baseline_calibrators es de solo inserción: los calibradores del lanzamiento no cambian');
+END;
+
+CREATE TRIGGER IF NOT EXISTS baseline_calibrators_no_delete BEFORE DELETE ON baseline_calibrators
+BEGIN
+    SELECT RAISE(ABORT, 'baseline_calibrators es de solo inserción: los calibradores del lanzamiento no cambian');
+END;
+
+CREATE TRIGGER IF NOT EXISTS baseline_calibrators_no_replace BEFORE INSERT ON baseline_calibrators
+WHEN EXISTS (SELECT 1 FROM baseline_calibrators WHERE method = NEW.method)
+BEGIN
+    SELECT RAISE(ABORT, 'baseline_calibrators es de solo inserción: ese calibrador ya está registrado');
 END;
 
 CREATE TRIGGER IF NOT EXISTS model_scores_no_update BEFORE UPDATE ON model_scores

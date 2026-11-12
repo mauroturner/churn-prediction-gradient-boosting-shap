@@ -52,6 +52,8 @@ from churnrisk.warehouse import apply_schema
 logger = logging.getLogger(__name__)
 
 SEAL_STATES = {"written": "sealed", "unchanged": "match", "post_seal": "post_seal"}
+# M05 as it was actually compared: the sealed configuration (True), another one (False), or no seal on disk to compare with (None, not evaluated)
+M05_PASSED = {"sealed": True, "match": True, "post_seal": False, "none": None}
 REGISTRY_COLUMNS = (
     "model_version", "trained_as_of", "artifact_path", "artifact_sha256", "feature_set", "feature_names_json", "country_groups_json", "params_json",
     "calibration", "threshold", "b_star", "bgnbd_json", "costs_json", "config_sha256", "selection_json", "valid_scores_sha256",
@@ -173,16 +175,18 @@ def _launch(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str, as_o
         conn.execute(f"INSERT INTO model_registry ({', '.join(REGISTRY_COLUMNS)}) VALUES ({', '.join('?' for _ in REGISTRY_COLUMNS)})", values)
         conn.executemany("INSERT INTO baseline_calibrators (method, model_version, calibrator_sha256) VALUES (?, ?, ?)", calibrators)
         conn.execute("COMMIT")
-    except BaseException:
+    except BaseException as error:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
+        logger.warning("fit_model %s: the registration of %s rolled back (%s: %s): nothing was registered; the seal and the artifact stay",
+                       run_key, view.model.model_version, type(error).__name__, error)
         raise
     state = SEAL_STATES[outcome]
     logger.info("fit_model %s: launch, set=%s threshold=%s b_star=%s seal=%s", run_key, chosen.feature_set, choice.threshold, baselines.b_star, state)
     return {
         "mode": "launch", "model_version": view.model.model_version, "feature_set": chosen.feature_set, "params": chosen.params(),
         "threshold": choice.threshold, "break_even": choice.break_even, "b_star": baselines.b_star, "artifact_sha256": artifact_sha256,
-        "config_sha256": config_sha256, "valid_scores_sha256": valid_sha, "seal_state": state, "m05_passed": state != "post_seal",
+        "config_sha256": config_sha256, "valid_scores_sha256": valid_sha, "seal_state": state, "m05_passed": M05_PASSED[state],
         "rows": dict(trained.rows), "auc_v1": trained.selection.auc_v1,
     }
 
@@ -197,5 +201,5 @@ def _reuse(conn: sqlite3.Connection, cfg: PipelineConfig, *, run_key: str, as_of
         "mode": "reuse", "model_version": registered.model_version, "feature_set": registered.feature_set, "threshold": registered.threshold,
         "b_star": registered.b_star, "artifact_sha256": registered.artifact_sha256, "config_sha256": config_sha256,
         "registered_config_sha256": registered.config_sha256, "valid_scores_sha256": registered.valid_scores_sha256, "seal_state": state,
-        "m05_passed": state != "post_seal",
+        "m05_passed": M05_PASSED[state],
     }

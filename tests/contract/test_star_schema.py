@@ -5,6 +5,7 @@ written outside the versioned folder."""
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 import sqlite3
 from datetime import date
 
@@ -68,8 +69,9 @@ def test_the_customer_level_fact_is_written_outside_the_versioned_folder(star_ex
     """D26, AC42 in part: the customer number is only in the private fact, under outputs/private/; no versioned file has a column that names a
     customer or an invoice, and no value of a versioned file is a customer number of the fixture; the two folders cannot be one."""
     cfg, out_dir, private_dir, _paths, meta, warehouse = star_export
-    assert sorted(p.name for p in private_dir.glob("*")) == ["fact_customer_cut.parquet"]
-    assert sorted(p.stem for p in out_dir.glob("*")) == sorted(t.name for t in MODEL.tables if not t.private)
+    assert sorted(p.name for p in private_dir.glob("*")) == ["fact_customer_cut.parquet", "manifest.json"]
+    assert sorted(p.stem for p in out_dir.glob("*.parquet")) == sorted(t.name for t in MODEL.tables if not t.private)
+    assert sorted(p.name for p in out_dir.glob("*") if p.suffix != ".parquet") == ["manifest.json"]
     customers = set(fixture_truth.customer_ids)
     for table in (t for t in MODEL.tables if not t.private):
         data = read(star_export, table.name)
@@ -154,3 +156,63 @@ def test_a_control_that_fails_rolls_the_star_model_back(star_export, tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM star_fact_tracking").fetchone()[0] == before and not conn.in_transaction
     finally:
         conn.close()
+
+
+# --- the manifest of the set (RNF05; D69) -----------------------------------------------------------------------------------
+
+
+def test_each_folder_gets_a_manifest_of_its_files_written_last_and_a_changed_byte_is_found(star_export, tmp_path, monkeypatch):
+    """Open point of L49: the Parquet set has a manifest, as the deliveries do. Each folder's ``manifest.json`` says the run, the date, the
+    source and the attribution and, for each of its files in the model's order, its name, bytes and SHA-256; it is written after every file of
+    its folder, and ``verify_star_schema`` finds a file whose bytes differ, one missing and one the manifest does not list."""
+    import hashlib
+    import json
+
+    from churnrisk import export
+    from churnrisk.export import STAR_MANIFEST, verify_star_schema
+
+    cfg, out_dir, private_dir, paths, meta, warehouse = star_export
+    for folder, private in ((out_dir, False), (private_dir, True)):
+        manifest = json.loads((folder / STAR_MANIFEST).read_text(encoding="utf-8"))
+        names = [f"{t.name}.parquet" for t in MODEL.tables if t.private == private]
+        assert [f["name"] for f in manifest["files"]] == names
+        for entry in manifest["files"]:
+            data = (folder / entry["name"]).read_bytes()
+            assert (entry["bytes"], entry["sha256"]) == (len(data), hashlib.sha256(data).hexdigest())
+        assert {k: manifest[k] for k in ("run_key", "as_of", "source_sha256", "attribution")} == dict(zip(("run_key", "as_of", "source_sha256", "attribution"), meta.metadata().values(), strict=True))
+        assert verify_star_schema(folder) == []
+    order = []
+    real = export.write_atomic
+    monkeypatch.setattr(export, "write_atomic", lambda path, data: (order.append(Path(path).name), real(path, data))[1])
+    copy = tmp_path / "w.sqlite"
+    shutil.copy2(warehouse, copy)
+    conn = connect(copy)
+    try:
+        export_star_schema(conn, tmp_path / "powerbi", tmp_path / "private", MODEL, meta, cfg)
+    finally:
+        conn.close()
+    versioned = [n for n in order if n.endswith(".parquet") and not MODEL.table(n[:-8]).private]
+    assert order.index(STAR_MANIFEST) > max(order.index(n) for n in versioned)
+    target = tmp_path / "powerbi"
+    data = bytearray((target / "fact_roc.parquet").read_bytes())
+    data[10] ^= 0xFF
+    (target / "fact_roc.parquet").write_bytes(bytes(data))
+    (target / "dim_date.parquet").unlink()
+    (target / "stray.parquet").write_bytes(b"x")
+    problems = verify_star_schema(target)
+    assert any("fact_roc.parquet" in p for p in problems) and any("dim_date.parquet" in p for p in problems) and any("stray.parquet" in p for p in problems)
+
+
+def test_a_failed_control_says_the_star_model_was_undone_not_the_load(star_export, tmp_path):
+    """Open point of L49: ``CheckFailedError`` names the step whose transaction was undone."""
+    cfg, _out, _private, _paths, meta, warehouse = star_export
+    path = tmp_path / "warehouse.sqlite"
+    shutil.copy2(warehouse, path)
+    conn = connect(path)
+    try:
+        conn.execute("UPDATE tracking SET scored = scored + 1 WHERE cut_date = '2011-08-01'")
+        with pytest.raises(CheckFailedError) as error:
+            build_powerbi_marts(conn, cfg, meta.source_sha256, meta.as_of)
+    finally:
+        conn.close()
+    assert str(error.value).startswith("La exportación del modelo estrella se deshizo; controles con filas que los violan: chk_tracking_totals")
