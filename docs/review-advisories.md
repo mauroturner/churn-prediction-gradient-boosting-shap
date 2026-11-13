@@ -1,10 +1,10 @@
 # Advertencias de las revisiones nativas
 
-Las advertencias que dejaron las revisiones nativas de Gentle AI de este proyecto, de U01 a U29, una sección por revisión, con su estado. Salen de los hallazgos que cada revisión devolvió (155 en sus archivos, más 5 que constan solo en el registro: el de U19 y los de la parte 2c de U29; todos sin bloqueo salvo los que se dicen) y del registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L46 a L55), que dice cuáles se corrigieron, cuáles se dejaron con evidencia y cuáles quedaron como advertencias para este documento. Las dos últimas secciones suman lo que encontró U31 al escribir la documentación y lo que encontró la evaluación independiente de `e28b1fb` (un bloqueante y 18 advertencias, L55), con lo que hizo su tanda de correcciones.
+Las advertencias que dejaron las revisiones nativas de Gentle AI de este proyecto, de U01 a U29 y las que siguieron a la evaluación independiente (U30, U31, las correcciones y la tanda de velocidad, L56), una sección por revisión, con su estado. Salen de los hallazgos que cada revisión devolvió (155 en sus archivos, más 5 que constan solo en el registro: el de U19 y los de la parte 2c de U29; todos sin bloqueo salvo los que se dicen) y del registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L46 a L56), que dice cuáles se corrigieron, cuáles se dejaron con evidencia y cuáles quedaron como advertencias para este documento. Las secciones «U31» y «Evaluación» suman lo que encontró U31 al escribir la documentación y lo que encontró la evaluación independiente de `e28b1fb` (un bloqueante y 18 advertencias, L55), con lo que hizo su tanda de correcciones; las que le siguen son las revisiones de lo que se escribió después (L56, 9 revisiones: 39 advertencias), y la última, «Comprobación», las dos advertencias que dejó la comprobación de otro agente (L56).
 
 Estados: **corregida** (con el commit que la corrige, con la prueba escrita primero), **dejada con evidencia** (el hallazgo no es un defecto, o ya está cubierto, con la evidencia) y **abierta** (cierta o posible, sin corregir; la tanda de correcciones de la evaluación independiente corrigió las que eligió el registro, L55, y las demás siguen abiertas). Ninguna advertencia se corrigió en U31. Lentes: riesgo (R1), legibilidad (R2), confiabilidad (R3) y resiliencia (R4). Las ubicaciones son relativas a la carpeta del proyecto y a la versión revisada.
 
-Dos tramos no se revisaron porque la evaluación de riesgo los dio pasivos: `c18e47f..fb59d06` (las decisiones D78-D80) y la parte 2d de U29 (las siete figuras, binarias). Una revisión, la de U06-U10 entera, y otra, la de U29 entera, superaron el presupuesto de contexto sin crear autoridad, y se hicieron por partes.
+Cuatro tramos no se revisaron porque la evaluación de riesgo los dio pasivos: `c18e47f..fb59d06` (las decisiones D78-D80), la parte 2d de U29 (las siete figuras, binarias) y las partes 2 y 4 de U31 (las advertencias, D88, los cambios al README y a la ficha, el paso a paso, las filas de la raíz y el registro). Una línea no tuvo revisión porque ninguna cabe: la de los lienzos de las páginas del HTML de A10, de unos 66 KB, más que el presupuesto de contexto aun sola; su generador sí se revisó y la comprobación la comparó (L56). Tres revisiones superaron el presupuesto de contexto sin crear autoridad y se hicieron por partes: la de U06-U10 entera, la de U29 entera y la del tramo abierto `fe25112..c27c70e` (U30 y U31 con tres entradas del registro), que se partió en U30 sola y las cuatro partes de U31; después, `c139ca2..94843fd` se partió por commits y A10 otra vez en su código, sus líneas del HTML y la línea de los lienzos.
 
 ## U01 (`f403772..24f3003`; riesgo y confiabilidad; aprobada; 6 advertencias)
 
@@ -445,17 +445,17 @@ Esta revisión abrió una corrección; la corrección amplió el alcance, la rev
 Un agente con Opus que no construyó el proyecto lo evaluó en un clon aparte (L55). El registro eligió qué corregir; las demás quedan como advertencias, dichas aquí y en las decisiones que nombra cada una.
 
 - **B1** (README, ficha del modelo, paso a paso, D87, D88 y `SITE-UPDATES.md`; bloqueante): la documentación decía de U30 y U31 quién las escribió, con qué modelo y en cuánto tiempo corrió la suite, y el registro en `e28b1fb` terminaba en L53; el README decía además «29 unidades».
-  - Estado: **corregida** en `e87dd0e` (L54 registra U30 y U31) y en el commit de documentación que sigue a `07d2a54`: cada afirmación dice lo que dicen L54 y L55, y el README dice 31 unidades.
+  - Estado: **corregida** en `e87dd0e` (L54 registra U30 y U31) y en `ab8f0e4`: cada afirmación dice lo que dicen L54 y L55, y el README dice 31 unidades. La comprobación (L56) la dio por cerrada salvo una frase del README, la línea 223, que decía que la prueba de Docker nunca se corrió; la corrige la sincronización de la documentación que sigue a `b5637a6` (`docs/evaluation.md`).
 - **A1** (`src/churnrisk/pipeline.py`; advertencia): la parte de la prueba del sello se podía escribir después de una evaluación posterior al sello, con la fecha de cálculo del 2011-12-09.
-  - Estado: **corregida** en `c139ca2`: mientras el sello no tiene la parte de la prueba, una corrida que la evaluaría con otra configuración se rechaza antes de escribir (D89, R13).
+  - Estado: **corregida** en `c139ca2`: mientras el sello no tiene la parte de la prueba, una corrida que la evaluaría con otra configuración se rechaza antes de escribir (D89, R13). La comprobación (L56) la reprodujo en `e28b1fb` y no en `94843fd`.
 - **A2** (`src/churnrisk/reporting.py`; advertencia): en un resumen posterior al sello, los costos de arriba eran los de la corrida, junto a cifras selladas.
-  - Estado: **corregida** en `969f2b4` (D92; la misma que `U17/R3-post-seal-costs-staleness`).
+  - Estado: **corregida** en `969f2b4` (D92; la misma que `U17/R3-post-seal-costs-staleness`). La comprobación (L56) la reprodujo en `e28b1fb` y no en `94843fd`.
 - **A3** (`reports/evaluation_summary.json`, `outputs/site/summary.json`; advertencia): el resumen versionado nombra claves de corrida del sello (18:20 y 18:23) distintas de las del sello versionado (17:46 y 17:49).
   - Estado: **abierta**: lo dice D85 (el sello es el de la primera corrida y las salidas, las de la repetición); el registro lo deja así (L55).
 - **A4** (`reports/evaluation_summary.md`, la fila de C07; advertencia): «|sesgo|» sin escapar parte la fila (la misma que `U31/resumen-C07-barras`).
-  - Estado: **corregida** en `1829c5f` (D91).
+  - Estado: **corregida** en `1829c5f` (D91). Comprobada en los dos clones (L56): las celdas de las filas pasan de `[5,5,5,5,5,5,7,5,5,5]` a 5 en todas.
 - **A5** (el veredicto de C09; advertencia): «no deja … en 9 de los 17» se lee como 9 fallas, y 9 son los puntos donde el modelo cumple; C09 es además frágil: con los parámetros del óptimo de `lifetimes`, B* en el punto 0,10 da 2.501,9 contra 2.502,2 del modelo.
-  - Estado: **corregida** en `1829c5f`: la fila del resumen dice en cuántos puntos el modelo deja al menos el beneficio de B* (9) y en cuántos no (8), sin cambiar el veredicto sellado (D91). La fragilidad queda dicha aquí.
+  - Estado: **corregida** en `1829c5f`: la fila del resumen dice en cuántos puntos el modelo deja al menos el beneficio de B* (9) y en cuántos no (8), sin cambiar el veredicto sellado (D91). La fragilidad queda dicha aquí. La comprobación (L56) la dio por cerrada con A4.
 - **A6** (`outputs/site/algorithms.json`, la curva de costo; advertencia): el 0 del modelo contra los valores negativos de B* sale de la grilla (sin «no contactar a nadie» cuando p ≥ 0,99); ninguna cifra publicada depende de eso.
   - Estado: **abierta** (la misma clase que `U29-4/R3-001`).
 - **A7** (`outputs/site/algorithms.json`, `b_star.auc_valid`; advertencia): el 0,766 es el AUC de V2 sola, rotulado `chosen_on: valid`; el que decidió (V1 y V2) es cerca de 0,767, y B3 le gana a B4 por 0,0008.
@@ -465,20 +465,132 @@ Un agente con Opus que no construyó el proyecto lo evaluó en un clon aparte (L
 - **A9** (cuentas chicas dentro de celdas de al menos 10 y cuentas de validación de menos de 10; advertencia): aceptables según el evaluador, no por la letra de RNF12.
   - Estado: **abierta**: D27, D68, D85 y D86 las dicen; cambiar RNF12 o publicar «<10» es del dueño (L55).
 - **A10** (`dashboard/powerbi-design.html`, páginas 1 y 3; advertencia): el filtro de la página 3 lista 739 días para 6 fechas de cálculo, `dim_as_of` no tiene relación ni visual, y los filtros de país y banda no llegan al gráfico de motivos.
-  - Estado: **corregida** en `aad019b` (D90).
+  - Estado: **corregida** en `aad019b` (D90). La comprobación (L56) la reprodujo en `e28b1fb` y no en `94843fd`.
 - **A11** (`tests/integration/test_privacy.py`; advertencia): la prueba de privacidad del plan no existía (D88).
-  - Estado: **corregida** en `969f2b4` y `07d2a54` (D92).
+  - Estado: **corregida** en `969f2b4` y `07d2a54` (D92). La comprobación (L56) vio la prueba pasar (24,66 s) y fallar al plantarle un número de cliente del accesorio.
 - **A12** (`src/churnrisk/lock.py`; advertencia): un bloqueo que quedó por una liberación fallida rechaza incluso a su propio proceso vivo, y uno viejo se borra a mano.
   - Estado: **abierta**: R9 dice cómo borrarlo; reconocer la ficha del dueño queda para otra tanda (L55).
 - **A13** (`tests/e2e/test_airflow_docker.py`; advertencia): la prueba de Docker dejaba la imagen `churnrisk-airflow:3.4.0`.
-  - Estado: **corregida** en `969f2b4`: la borra si la construyó (D92).
+  - Estado: **corregida** en `969f2b4`: la borra si la construyó (D92). La comprobación (L56) lo reprodujo en `e28b1fb` (dejaba la imagen) y no en `94843fd`.
 - **A14** (`tests/integration/test_evaluation.py`, `tests/contract/test_star_schema.py`; advertencia): la función auxiliar `test_delivery` se recogía como prueba, y había un escape inválido.
-  - Estado: **corregida** en `969f2b4`: `tests/unit/test_sources.py` vigila los dos casos (D92).
+  - Estado: **corregida** en `969f2b4`: `tests/unit/test_sources.py` vigila los dos casos (D92). La comprobación (L56) lo reprodujo en `e28b1fb` y no en `94843fd`.
 - **A15** (`src/churnrisk/pipeline.py`; advertencia): una corrida rechazada porque otra más vieja tiene la entrega termina con 1 y deja su estado `failed`.
   - Estado: **abierta**: R4 lo dice.
 - **A16** (`SITE-UPDATES.md`; advertencia): el «77,9 %» no nombraba su corte.
-  - Estado: **corregida** en el commit de documentación que sigue a `07d2a54`: es el del 2011-09-01.
+  - Estado: **corregida** en `ab8f0e4`: es el del 2011-09-01. La comprobación (L56) lo verificó contra `fact_reason_summary`.
 - **A17** (`reports/validation/`; advertencia): los ejemplos de la validación versionados llevan `line_id`, código de producto y fecha, que señalan una línea de la fuente pública.
   - Estado: **abierta**: riesgo bajo según el evaluador; la fuente es pública.
 - **A18** (la suite rápida; advertencia): sobre el presupuesto de trabajo de 100 s, como dice la ficha del modelo.
-  - Estado: **abierta**: al cerrar las correcciones midió 118,99 s y 119,17 s, dentro del límite de 120 s.
+  - Estado: **abierta**: al cerrar las correcciones midió 118,99 s y 119,17 s en `07d2a54`, dentro del límite de 120 s; la tanda de velocidad (`816289e`, D93) la bajó a 108,27 s y 107,36 s, sin llegar a 100 s (L56).
+
+## U30 (`3ec6052`; legibilidad y confiabilidad; aprobada; 4 advertencias)
+
+- **R2-docs-sync-heading-regex-fence-unaware** (`src/churnrisk/docs_sync.py`, líneas 16-21; advertencia): `readme_block` baja un nivel toda línea que empieza por `#` y un espacio, sin distinguir los bloques de código, aunque su docstring promete dejar el resto byte a byte.
+  - Estado: **abierta**: `docs_sync.py` no cambió desde `e28b1fb`. Hoy no pasa nada: el resumen versionado tiene un solo título (`## Resultados`) y ningún bloque de código; pero no hay una prueba con un bloque.
+- **R2-docs-sync-param-name-type-shift** (`src/churnrisk/docs_sync.py`, líneas 19-26; sugerencia): `summary_md` es el texto en `readme_block` y una ruta en `sync_readme`, dos cosas distintas con el mismo nombre.
+  - Estado: **abierta**.
+- **R2-docs-sync-redundant-path-wrapping** (`src/churnrisk/docs_sync.py`, línea 26; sugerencia): `sync_readme` vuelve a envolver en `Path` parámetros que ya están tipados como `Path`, en una línea densa.
+  - Estado: **abierta**.
+- **R3-heading-demotion-edge-cases** (`src/churnrisk/docs_sync.py`, líneas 16-21; advertencia): El corrimiento de títulos no vigila un título de sexto nivel, que pasaría a un séptimo inválido, ni un título de subrayado (setext), que quedaría sin bajar mientras los demás bajan.
+  - Estado: **abierta**: Ninguna prueba cubre títulos más hondos ni de subrayado; el resumen versionado no los tiene.
+
+## U31-1 (el diccionario de datos y `docs-sync`; legibilidad y confiabilidad; aprobada; 5 advertencias)
+
+- **R2-dict-fallback** (`src/churnrisk/docs_sync.py`, líneas 26-28; advertencia): `KIND_ES`, `KEY_ES` y `DTYPE_ES` se indexan sin valor por defecto: un tipo de tabla o de columna nuevo da un `KeyError` pelado desde un módulo auxiliar.
+  - Estado: **abierta**: Todos los valores del modelo actual están en los diccionarios.
+- **R2-figures-dir-coupling** (`src/churnrisk/cli.py`, línea 171; advertencia): La ruta del diccionario sale del padre de `paths.figures_dir`, no de un ajuste propio; si las figuras se escriben en otro lugar, el diccionario deja de actualizarse sin avisar.
+  - Estado: **abierta**: Es el diseño que dice el docstring de `dictionary_path` (`docs/` junto a las figuras; el modo rápido no tiene diccionario); no hay un ajuste propio.
+- **R3-dtype-keyerror** (`src/churnrisk/docs_sync.py`, líneas 56-58; advertencia): El mismo `KeyError` ante un tipo de tabla o de columna fuera de los diccionarios, sin mensaje que lo explique ni prueba.
+  - Estado: **abierta**: La misma que `R2-dict-fallback`; el hallazgo reconoce que hace falta un valor fuera de dominio para dispararla.
+- **R3-figures-dir-none** (`src/churnrisk/docs_sync.py`, líneas 63-65; advertencia): `dictionary_path(figures_dir)` no vigila un valor vacío y daría `TypeError` antes de la guarda de `cli.py`.
+  - Estado: **dejada con evidencia**: `paths.figures_dir` es una clave obligatoria de la configuración, tipada `Path` (`src/churnrisk/config.py`, líneas 184 y 280), y la configuración del modo rápido la tiene (`config/pipeline.quick.toml`, línea 40); `test_docs_sync_without_a_dictionary_still_syncs_only_the_readme` fija ese caso.
+- **R3-missing-coverage** (`src/churnrisk/docs_sync.py`, líneas 45-70; advertencia): El diff de la revisión no traía ninguna prueba de las funciones nuevas (`_cell`, `render_dictionary_tables`, `dictionary_path` y `sync_dictionary`) ni de la rama nueva de la línea de comandos.
+  - Estado: **dejada con evidencia**: Es un efecto del reparto de la revisión: las pruebas están en la parte 3 de U31 (`tests/docs/test_docs.py`: `test_docs_sync_writes_the_dictionary_tables_and_a_second_run_changes_nothing`, `test_docs_sync_without_a_dictionary_still_syncs_only_the_readme` y `test_the_dictionary_covers_the_source_and_the_features_and_its_tables_are_the_generated_ones`).
+
+## U31-3 (las pruebas de coherencia de la documentación y el runbook; legibilidad y confiabilidad; aprobada; 6 advertencias)
+
+- **R2-001** (`tests/docs/test_docs.py`, líneas 186-201; sugerencia): `test_every_test_named_in_the_plan_exists` suena a regla universal, pero su aserción final tolera la lista `KNOWN_MISSING`.
+  - Estado: **corregida** en `969f2b4`: la prueba que faltaba se escribió (A11, D92) y `KNOWN_MISSING` quedó vacío, así que el nombre dice lo que la aserción exige.
+- **R2-002** (`tests/docs/test_docs.py`, línea 191; advertencia): Cinco pisos fijos (100 pruebas, 150 advertencias, 88 decisiones, 50 commits y 10 cifras de memoria) con la sola justificación «la comprobación no es vacía».
+  - Estado: **abierta**.
+- **R2-003** (`tests/docs/test_docs.py`, líneas 176-183; sugerencia): `named_in_plan` guarda el último archivo nombrado en todo el plan y le atribuye cada `::prueba` suelta, sin comprobar que le pertenezca.
+  - Estado: **abierta**.
+- **R3-001** (`tests/docs/test_docs.py`, líneas 162-174; advertencia): `fast_suite_count` depende de la redacción de la línea de resumen de `pytest --collect-only` en otro proceso, con un plazo de 300 s.
+  - Estado: **abierta**.
+- **R3-002** (`tests/docs/test_docs.py`, líneas 134-138; advertencia): `KNOWN_MISSING` aceptaba la falta de `tests/integration/test_privacy.py`, así que la comprobación de que se escribió cada prueba del plan nunca fallaba por ella.
+  - Estado: **corregida** en `969f2b4` y `07d2a54`: la prueba existe y `KNOWN_MISSING` está vacío (A11, D92).
+- **R3-003** (`tests/docs/test_docs.py`, líneas 1-392; sugerencia): Las comprobaciones de coherencia atan el resultado de este módulo al contenido exacto de muchos archivos que están fuera del diff.
+  - Estado: **dejada con evidencia**: Es el diseño: la clase «documentación sin sincronizar» del plan, sección 24.2, y AC40 piden que una prueba falle cuando un documento queda sin sincronizar; el docstring del módulo lo dice.
+
+## A1 (`c27c70e..c139ca2`; riesgo y confiabilidad; aprobada; 3 advertencias)
+
+- **R3-001** (`src/churnrisk/pipeline.py`, líneas 680-681; advertencia): La rama que, con la parte de la prueba del sello ya escrita, deja correr otra configuración como posterior al sello no la ejercita la prueba nueva.
+  - Estado: **abierta**: La comprobación (L56) la probó a mano: con la parte de la prueba escrita, una corrida con costos 8 sale con 0 como posterior al sello y deja el sello intacto, como dice R13. No hay una prueba que lo fije.
+- **R3-002** (`src/churnrisk/pipeline.py`, líneas 685-686; sugerencia): Ramas del rechazo sin prueba directa: la entrega retenida todavía no entregada, el `SealError` y el mensaje de `differing_keys` con cero o con más de seis claves.
+  - Estado: **abierta**: Son ramas estrechas y de texto.
+- **R3-003** (`src/churnrisk/pipeline.py`, línea 133; sugerencia): `_context` ya no escribe el estado de una corrida nueva; lo escribe `_open`, y no se ve si otro llamador dependía de que se escribiera enseguida.
+  - Estado: **dejada con evidencia**: `_context` solo la llaman `run_task` y `run_all` (`pipeline.py`, líneas 783 y 809), las dos pasan por `_run_spec`, que llama a `_open` (línea 752), y el diferencial de 45 pasos de la comprobación no halló ninguna diferencia que nadie pidiera.
+
+## A10-código (`aad019b`, su código y sus pruebas; legibilidad y confiabilidad; aprobada; 4 advertencias)
+
+- **R2-fragile-title-slicer-match** (`tests/unit/test_semantic_model.py`, líneas 231-237; advertencia): La prueba decide si el título de un visual documenta un filtro que no lo filtra con una expresión regular sobre prosa y con la primera palabra del filtro como subcadena, un cotejo flojo para una guarda de seguridad.
+  - Estado: **abierta**.
+- **R2-duplicate-title-literal** (`tests/unit/test_semantic_model.py`, líneas 195-196; sugerencia): La prueba vuelve a escribir el título del gráfico de motivos en lugar de usar `REASONS_TITLE`, que `semantic_model.py` define para tener una sola fuente.
+  - Estado: **abierta**.
+- **R2-unexplained-constant-six** (`tests/unit/test_semantic_model.py`, línea 276; sugerencia): `len(listed) == 6` no explica de dónde sale el seis (las fechas de cálculo del accesorio).
+  - Estado: **abierta**.
+- **R3-tables-of-overmatch** (`tests/unit/test_semantic_model.py`, línea 219; advertencia): `_tables_of` cuenta como leída toda tabla cuyo nombre aparece como palabra en el DAX de una medida, también en un comentario o en una cadena, y con eso un filtro podría figurar como llegando a un visual sin llegar.
+  - Estado: **abierta**.
+
+## A10-HTML (`aad019b`, las líneas regeneradas del HTML salvo los lienzos de las páginas; legibilidad y confiabilidad; aprobada; 5 advertencias)
+
+- **R2-term-overload** (`dashboard/powerbi-design.html`, línea 50; sugerencia): El paso de armado dice «la fecha de cálculo» en singular, y la misma corrección dice «las fechas de cálculo del seguimiento»; el documento ya usa «Fecha de cálculo» para la fecha única de su encabezado.
+  - Estado: **abierta**: El texto lo escribe `src/churnrisk/dashboard/render.py` y el HTML se regenera de él.
+- **R2-page3-xref** (`dashboard/powerbi-design.html`, línea 50; advertencia): La frase nueva sobre el segmentador de la página 3 se apoya en una sección (las páginas) que el diff de la revisión no mostraba.
+  - Estado: **dejada con evidencia**: Es un efecto del reparto: la línea de los lienzos de las páginas no cabía en ninguna revisión. El segmentador de la página 3 es `dim_as_of[as_of_label]`, como lo leyó la comprobación (L56) en el HTML, y `test_every_slicer_filters_a_visual_of_its_page_through_a_relationship` y `test_the_slicers_of_the_tracking_page_filter_every_one_of_its_visuals` (`tests/unit/test_semantic_model.py`) lo prueban.
+- **R2-dual-relationship-same-column** (`dashboard/powerbi-design.html`, línea 58; sugerencia): R17 (`dim_date`) y R19 (`dim_as_of`) quedan activas sobre `fact_tracking[as_of_key]` y el texto no explica cómo se combinan sus filtros.
+  - Estado: **abierta**: D90 lo decide («dos dimensiones que filtran la misma columna de un hecho no forman un camino ambiguo»), pero el HTML no lo dice.
+- **R3-001** (`dashboard/powerbi-design.html`, línea 53; advertencia): El recuadro «Qué se probó y qué no» no dice que el cruce del filtro de `dim_as_of` con `fact_tracking` por R19 no se comprobó en Power BI.
+  - Estado: **abierta**: Las pruebas de relaciones cubren R19 (`tests/contract/test_star_schema.py` y su control SQL), pero el recuadro sigue sin nombrar el cruce de R17 y R19 entre lo pendiente de verificar en Power BI.
+- **R3-002** (`dashboard/powerbi-design.html`, línea 61; advertencia): R19 se suma a R17 como segunda relación activa sobre la misma columna del hecho, sin explicar la propagación de los dos filtros ni una prueba que lo verifique.
+  - Estado: **abierta**: La misma que `R2-dual-relationship-same-column`.
+
+## A4-A5 (`1829c5f`; legibilidad y confiabilidad; aprobada; 6 advertencias)
+
+- **R2-verdict-c09-coupling** (`src/churnrisk/reporting.py`, líneas 277-284; sugerencia): `_verdict` compara `criterion_id` con el literal «C09» y lee `value` y `baseline_value` como puntos conservados y puntos totales, un significado propio de ese criterio dentro de una función genérica.
+  - Estado: **abierta**.
+- **R2-verdict-int-truncation** (`src/churnrisk/reporting.py`, línea 282; sugerencia): `int(c["value"])` y `int(c["baseline_value"])` truncan en lugar de redondear; un conteo que llegue como 8,999… imprimiría un 8 equivocado.
+  - Estado: **abierta**.
+- **R2-duplicated-cell-counter** (`tests/unit/test_reporting.py`, líneas 47-49; sugerencia): `_cells` repite el contador de barras sin escapar que `tests/docs/test_docs.py` ya trae como `cells`.
+  - Estado: **abierta**.
+- **R3-001** (`src/churnrisk/reporting.py`, línea 313; advertencia): El análisis posterior al sello también usa `_verdict`, así que ganaría la frase de C09 si trajera C09; ninguna prueba ejercita esa rama con C09.
+  - Estado: **abierta**.
+- **R3-002** (`src/churnrisk/reporting.py`, líneas 281-282; advertencia): El `int()` sin validar que los valores sean enteros daría una frase falsa en lugar de fallar.
+  - Estado: **abierta**: La misma que `R2-verdict-int-truncation`.
+- **R3-003** (`src/churnrisk/reporting.py`, línea 281; sugerencia): La frase extra depende del literal «C09»: si el criterio se renumera, dejaría de aparecer sin avisar.
+  - Estado: **abierta**: La misma que `R2-verdict-c09-coupling`.
+
+## A11-A2-A14-A13 (`969f2b4` y `07d2a54`; riesgo y confiabilidad; aprobada; 3 advertencias)
+
+- **R3-pipeline-coverage-narrowed** (`tests/integration/test_pipeline.py`, línea 280; advertencia): La prueba del rechazo de A1 ya no recorre por la línea de comandos que la configuración sellada vuelve a escribir la parte de la prueba una vez y en su fecha; eso consta en una comprobación a mano (D89).
+  - Estado: **abierta**: La comprobación (L56) lo vio a mano en `94843fd` (la corrida con el sello escribe la parte de la prueba con `as_of` 2011-11-30), pero ninguna prueba lo fija.
+- **R3-figures-fixture-session-sharing** (`tests/conftest.py`, líneas 400-413; sugerencia): `figures_written` pasó a ser un accesorio de sesión que comparten `test_figures.py` y `test_privacy.py`, y nada fija que ninguno escriba en la carpeta compartida.
+  - Estado: **abierta**.
+- **R3-import-guard-limited-scope** (`tests/unit/test_sources.py`, líneas 19-28; sugerencia): La guarda de A14 solo mira `ImportFrom` de primer nivel: un `import x as test_y` o un `ImportFrom` dentro de una función o de un `try` no los vería.
+  - Estado: **abierta**.
+
+## Docs-velocidad (`ab8f0e4`, `816289e` y `94843fd`; legibilidad y confiabilidad; aprobada; 3 advertencias)
+
+- **R2-conftest-gc-threshold-global-magic** (`tests/conftest.py`, líneas 28-33; advertencia): `gc.set_threshold(200_000, 100, 100)` se ejecuta al importar y cambia el recolector de toda la sesión, sin ámbito ni restauración y sin decir por qué esas magnitudes.
+  - Estado: **abierta**: D93 explica el motivo de subir los umbrales y compara las alternativas, pero no por qué esas magnitudes.
+- **R3-gc-threshold-untested-cleanup-timing** (`tests/conftest.py`, líneas 28-32; advertencia): Nada prueba que la limpieza que depende del recolector (el bloqueo, la memoización por `id()` de `F1/R3-acquire-wait-no-timeout` y `F2/R2-id-based-memoization`) siga siendo determinista con la recolección tan diferida.
+  - Estado: **abierta**: La comprobación (L56) halló los mismos resultados por prueba en las 880 con y sin los umbrales, y `-m real_data` y `-m docker` pasaron con ellos: eso muestra que no hubo una regresión, no que la limpieza sea determinista.
+- **R3-gc-threshold-manual-only-validation** (`tests/conftest.py`, línea 32; sugerencia): La igualdad de las 880 pruebas recogidas antes y después consta en D93 y no en una prueba.
+  - Estado: **abierta**: La comprobación (L56) la repitió a mano, línea a línea; ninguna prueba la fija.
+
+## Comprobación (la comprobación de las correcciones; 2 advertencias)
+
+- **RNF14-cifras-de-las-correcciones** (README, ficha del modelo, paso a paso, runbook (R8), D89 a D93 y `SITE-UPDATES.md`; advertencia): Los documentos en `94843fd` daban cifras, modelos y tiempos de las correcciones y de la tanda de velocidad que el registro todavía no tenía (L55 solo tenía la decisión).
+  - Estado: **corregida** en `b5637a6`, que registra L56 con esos commits, modelos, tiempos y cuentas; la sincronización de la documentación quitó además las cifras que L56 todavía no tiene o las rotuló como del escritor.
+- **margen-de-la-suite** (la suite rápida; advertencia): El margen bajo el límite de 120 s es de 8,9 s y 11,7 s, y los documentos dan 122 y 123 s en `969f2b4` en esta máquina, así que el límite sigue frágil.
+  - Estado: **abierta**: Lo dicen D92 y D93; bajarlo más pide procesos en paralelo (D35, del dueño) o cambios del producto.
