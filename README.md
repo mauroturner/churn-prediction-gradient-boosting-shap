@@ -1,8 +1,21 @@
 # Clientes que están por irse, antes de que se vayan
 
+| | |
+| --- | --- |
+| **Propuesta de valor** | Una lista mensual de clientes en riesgo de irse, con la probabilidad de cada uno, sus tres motivos y una marca en los que conviene contactar según costos supuestos, medida contra las reglas que usaría un gerente |
+| **Stack tecnológico** | Python 3.11, pandas, NumPy, SciPy, scikit-learn, SHAP, openpyxl, SQLite y SQL, Parquet (PyArrow), Matplotlib, pytest, Apache Airflow sobre Docker Compose, y el diseño de un tablero de Power BI en HTML |
+| **Técnicas** | Clasificación binaria con gradient boosting, calibración isotónica, motivos por cliente con SHAP, RFM, BG/NBD, umbral por beneficio neto con costos supuestos, partición en el tiempo con prueba sellada, remuestreo pareado por clientes |
+| **Para auditar** | [Ficha del modelo](docs/model-card.md) · [Evaluación independiente](docs/evaluation.md) · [Última corrida: validación](reports/validation/latest.md) · [Última corrida: resultados](reports/evaluation_summary.md) |
+
+Este README sigue la estructura común de los proyectos de datos del portafolio, descrita en `ESTRUCTURA-PROYECTOS.md` en la raíz del portafolio.
+
+## 1. Resumen ejecutivo
+
+### 1.1 Problema de negocio y solución
+
 Un flujo mensual que carga las facturas de una tienda en línea, las valida, descuenta las anulaciones con lo que se sabe en cada fecha y, en cada fecha de corte, da a cada cliente activo la probabilidad calibrada de no volver a comprar en los 90 días siguientes, con sus tres motivos principales, y la lista de los que conviene contactar según costos supuestos y declarados. Y mide, contra criterios fijados antes de escribir el código, si el modelo ordena a los clientes mejor que las reglas que usaría un gerente: no las supera.
 
-## El problema
+**El problema.**
 
 Una tienda que vende en línea ve quién compró y cuándo, pero ningún sistema marca quién dejó de comprar: cuando alguien lo nota, el cliente ya se fue. No hay un contrato que se cancele ni un aviso de baja, solo un silencio que se confunde con una pausa normal. Retención y marketing no saben a quién llamar ni cuándo; atención al cliente no sabe a quién cuidar; dirección no sabe cuánto rinde una oferta de retención ni si un modelo agrega algo a una regla que cualquiera puede escribir con las facturas.
 
@@ -10,7 +23,7 @@ El dato de este proyecto es el archivo público «Online Retail II» de UCI (CC 
 
 Lo que el proyecto encontró es la respuesta honesta a la pregunta de dirección: **el modelo no supera a las reglas simples.** En la prueba, una regla de frecuencia (cuántos días compró el cliente en el último año) ordena a los clientes mejor que el modelo, y BG/NBD, la base más fuerte elegida en la validación, deja más beneficio con los mismos costos supuestos.
 
-## La solución
+**La solución.**
 
 Un flujo mensual que toma cada entrega de facturas, la valida con 39 reglas (18 bloquean la entrega, 13 advierten y 8 informan), la carga en SQLite de forma todo o nada, descuenta cada anulación de la compra que anula con lo que se sabe en la fecha, arma en cada corte la población de clientes activos y su etiqueta, entrena una sola vez un clasificador de árboles en el lanzamiento y lo deja congelado, puntúa cada mes a los clientes activos con sus tres motivos (SHAP), elige a quién contactar con un umbral por beneficio neto y sigue mes a mes quién volvió y quién no. Escribe las tablas de un tablero de Power BI en modelo estrella, el diseño del tablero en HTML y cinco archivos pequeños para el sitio, sin ningún número de cliente en lo publicado.
 
@@ -23,9 +36,187 @@ El resultado central no es el modelo sino una medición: el clasificador se comp
 - **La curva de costo**: cuánto cambia la decisión de contactar si cambian el costo de la oferta, la tasa de rescate o el valor de un cliente.
 - **La evidencia de que una regla de frecuencia o RFM es el punto de partida honesto**: con estos datos, cualquiera de las dos ordena a los clientes como el modelo, y es más fácil de explicar.
 
-## Los resultados
+**Para qué sirve.**
 
-Corrida real del 2026-11-12 sobre el zip de UCI (huella SHA-256 `572e3627…7bfb`): el lanzamiento al 2011-07-31, cuatro entregas mensuales (2011-08 a 2011-11), el cierre con los 9 días de 2011-12 y una corrida sin entrega. El modelo se entrenó con siete cortes de 2010, se eligió y calibró con los de marzo y abril de 2011 (V1) y eligió su umbral con el de mayo (V2); la prueba, los cortes del 2011-08-01 y del 2011-09-01 (3.935 filas de 2.017 y 1.918 clientes, 34,4 % de bajas), se evaluó una sola vez y quedó en el sello `reports/model_seal.json`, que no se reescribe. Los criterios se fijaron y se confirmaron en Git antes del primer código (`docs/requirements.md`, sección 8.1; `docs/decisions.md`, D18), junto con lo que se esperaba: que el modelo no cumpliera C02, C03 ni C07. **Así salió, y peor: el modelo no supera ningún criterio de orden ni de beneficio (C01-C05, C09), no cumple el de calibración (C07) y cumple solo C06 y C08.** El bloque siguiente no se escribe a mano: lo copia `python -m churnrisk docs-sync` de `reports/evaluation_summary.md`, que escribe el propio flujo, con sus títulos un nivel más abajo.
+- **Un equipo de retención** obtiene cada mes la lista de clientes activos con su riesgo calibrado, sus tres motivos y una marca en los que conviene contactar según los costos que declare, y el seguimiento de cuántos volvieron.
+- **Quien decida con el modelo sabe cuánto confiar en él:** no ordena mejor que una regla de frecuencia, RFM o BG/NBD, y su probabilidad sobreestima las bajas cuando la tasa cambia. Si se quiere algo simple y auditable, la frecuencia de 365 días o RFM alcanzan; el flujo, el seguimiento, la curva de costo y el tablero sirven igual con ellas.
+- **Dirección** ve cuánto cambia la decisión de contactar si cambian el costo de la oferta, la tasa de rescate o el valor de un cliente, en lugar de un umbral fijo.
+- **Una entrega nueva sin trabajo manual:** el flujo la valida, la carga, puntúa a los activos y sigue a los de cortes anteriores; si el archivo cambia de forma o se daña, la rechaza sin tocar lo anterior.
+- **Para un tablero:** las tablas en estrella y el diseño en HTML dicen cómo armar las cinco páginas en Power BI Desktop.
+
+### 1.2 Criterios de éxito e impacto
+
+Los criterios se fijaron y se confirmaron en Git antes del primer código (`docs/requirements.md`, sección 8.1; `docs/decisions.md`, D18): diez criterios, C01 a C10, nueve con umbral y uno informativo, junto con lo que se esperaba: que el modelo no cumpliera C02, C03 ni C07. **El modelo no supera a las reglas simples: cumple 2 de los 9 criterios con umbral, C06 (conviene actuar con él antes que contactar a todos o a nadie) y C08 (su Brier es menor que el de la base más fuerte).** En la prueba, su AUC es 0,745; el de RFM 0,746, el de BG/NBD 0,749 y el de la frecuencia de 365 días 0,752. Cada criterio contra su resultado, en [5.1](#51-evaluación-frente-a-criterios-de-éxito); la tabla completa, en [Resultados completos de la corrida](#resultados-completos-de-la-corrida).
+
+## 2. Datasets y preparación
+
+### 2.1 Fuentes, alcance y granularidad
+
+| | |
+| --- | --- |
+| Fuente | UCI Machine Learning Repository, «Online Retail II», de Daqing Chen (https://doi.org/10.24432/C5CG6D) |
+| Archivo | `online_retail_ii.zip`, 45.622.418 bytes; adentro, `online_retail_II.xlsx`, con dos hojas y 8 columnas |
+| Período | Facturas del 2009-12-01 al 2011-12-09 |
+| Filas | 1.067.371; sin las 22.523 copias exactas del solapamiento entre las dos hojas quedan 1.044.848 líneas (11.812 repeticiones internas se conservan y se marcan) |
+| Roles | 788.187 compras, 17.641 anulaciones y 239.020 líneas apartadas por la primera regla que las aparta (sin cliente, precio cero, códigos de servicio, vales, facturas «A») |
+| Invitados | 235.287 líneas sin número de cliente (22,5 % de las líneas y 15,1 % del importe): no se pueden seguir en el tiempo y quedan fuera |
+| Clientes | 5.942 con al menos una compra, de 41 países (91 % del Reino Unido) |
+| Etiqueta | La baja no está en los datos: se define como ninguna compra neta en los 90 días desde el corte, entre los activos de los 90 días anteriores |
+| Ruido | En el entrenamiento, el 31,7 % de los 6.611 silencios de 90 días vuelve a comprar en los 90 siguientes; la investigación midió 39 % sobre el archivo completo |
+
+La unidad del modelo es el cliente con número en una fecha de corte, el día 1 de un mes. Cada columna del libro, cada variable y cada columna de las tablas exportadas, con su unidad, están en [docs/data-dictionary.md](docs/data-dictionary.md). La atribución y la licencia están al final, en [Fuente y licencia](#fuente-y-licencia).
+
+### 2.2 Saneamiento y reglas de calidad
+
+Cada entrega pasa por 39 reglas antes de cargarse: 18 bloquean la entrega, 13 advierten (corrigen, apartan o marcan) y 8 informan. Si una bloqueante falla, la entrega se rechaza sin tocar lo ya cargado. Lo que se aparta, lo que se descuenta y lo que se marca está en las filas «Filas», «Roles» e «Invitados» de 2.1: las copias exactas del solapamiento entre las hojas se quitan, las repeticiones internas se conservan y se marcan, las líneas sin cliente, de precio cero, de códigos de servicio, de vales y de facturas «A» se apartan, y cada anulación se descuenta de la compra que anula con lo que se sabe en la fecha. Cada regla con su recuento real, en [reports/validation/latest.md](reports/validation/latest.md); qué hacer ante cada rechazo, en [docs/runbook.md](docs/runbook.md).
+
+## 3. Arquitectura y metodología
+
+Doce tareas que corren siempre en este orden, las mismas desde la línea de comandos (`python -m churnrisk run`) y desde el DAG de Apache Airflow (`churnrisk_monthly`):
+
+### 3.1 Fuente e ingesta
+
+Sobre la integridad de la descarga: el zip llega por HTTPS desde `archive.ics.uci.edu`; cada salto debe ir a un host de la lista, con a lo sumo tres redirecciones, 64 MiB y 900 s, y el archivo se acepta solo si su SHA-256 es el fijado en la configuración (el mismo que fijó el proyecto 02). El libro de Excel de adentro se trata como no confiable: miembro exacto, sin rutas, con tope descomprimido y su propia huella.
+
+La segunda tarea hace de sistema de origen: como el archivo es histórico, el flujo lo reparte en un lanzamiento con las facturas hasta el 2011-07-31, cuatro entregas mensuales (2011-08 a 2011-11) y un cierre con los 9 días de 2011-12. Una línea va en la entrega de la fecha de su factura. Con ninguna entrega pendiente, la corrida termina como `no_delivery`. La tercera tarea corta el flujo, sin tocar nada, si la entrega no cumple el contrato.
+
+### 3.2 Orquestación y transformación
+
+```mermaid
+flowchart LR
+  A[fetch_source<br/>zip con huella fijada] --> B[deliver<br/>la siguiente entrega]
+  B --> C[validate<br/>39 reglas]
+  C --> D[load<br/>SQLite, todo o nada]
+  D --> E[build_cuts<br/>población, etiqueta y variables]
+  E --> F[fit_model<br/>entrena y congela en el lanzamiento]
+  F --> G[score<br/>riesgo y motivos de cada activo]
+  G --> H[track<br/>quién volvió y quién no]
+  H --> I[evaluate<br/>V2 y, una vez, la prueba]
+  I --> J[export<br/>26 Parquet y 5 JSON]
+  J --> K[render_dashboard<br/>HTML]
+  K --> L[report<br/>cierra la corrida]
+```
+
+Un corte es el día 1 de un mes. Su población son los clientes con al menos una compra neta en los 90 días anteriores (M = 90), y un cliente de la población se fue si no tiene ninguna compra neta en los 90 días desde el corte (N = 90); la etiqueta entra al almacén recién cuando esa ventana cerró. Las variables de un corte salen solo de lo anterior a él. El modelo se entrena una sola vez, en el lanzamiento, y queda congelado: su artefacto se carga solo si su SHA-256 coincide con el registrado, y cada corrida puntúa una vez a los activos de su corte, sin cambiar nunca un puntaje emitido. El sello guarda la configuración del lanzamiento y el primer resultado de la prueba; una evaluación con otra configuración se informa aparte, como posterior al sello. Un solo proceso escribe la carpeta de datos a la vez: cada tarea toma el bloqueo `data/interim/pipeline.lock`, y un segundo proceso se rechaza sin escribir nada.
+
+- **Orquestación:** la línea de comandos y el DAG de Airflow sobre Docker Compose, con las mismas tareas y las mismas funciones. La función de puntuación queda lista para envolverla en un servicio; no hay una API.
+
+### 3.3 Almacenamiento y modelado de datos
+
+El almacén es SQLite: cada entrega se carga de forma todo o nada, y ahí viven las líneas, los cortes con sus variables y etiquetas, los puntajes con sus motivos, el seguimiento, las corridas y el resultado de cada regla; el número de cliente vive solo ahí, en `data/interim/` y en `outputs/private/`, que no se versionan. La capa analítica es el modelo estrella que escribe la tarea `export`, descrito en [4.1](#41-entregables-operativos) («Tablas para Power BI»); cada tabla con sus columnas y sus relaciones, en [docs/data-dictionary.md](docs/data-dictionary.md).
+
+### 3.4 Experimentación y Machine Learning
+
+Los criterios C01-C10, los hiperparámetros, las semillas, los costos supuestos y las ventanas están fijados antes de medir en `config/pipeline.toml` y en `docs/requirements.md`; cada decisión, con sus opciones y su motivo, está en el [registro de decisiones](docs/decisions.md). El sello guarda la configuración del lanzamiento y el primer resultado de la prueba, y no se reescribe.
+
+#### 3.4.1 Ingeniería de características y línea base (baseline)
+
+- **Variables de lo anterior al corte.** Dieciséis: recencia, antigüedad, días de compra (todos, en 90 y en 365 días), gasto (total, en 90 y en 365 días), gasto por día de compra, unidades en 90 días, tiempo medio y máximo entre compras, productos distintos y unidades medianas por línea en 365 días, y anulaciones y su importe en 365 días; además el país de la última línea, como indicadores. Tres conjuntos: F0 (recencia y frecuencia de 365 días), F1 (las dieciséis) y F2 (F1 y el país). Una lista permitida, un error propio (`LeakageError`), una prueba de truncamiento y una de perturbación impiden que la etiqueta, el número de cliente o una variable de calendario lleguen a la matriz, y una trampa detiene el lanzamiento si el AUC del modelo elegido llega a 0,95 en V1.
+- **Reglas de comparación.** B0 contactar a todos, B1 la recencia, B2 RFM (quintiles de recencia, frecuencia y gasto de 365 días), B3 las compras esperadas en 90 días según BG/NBD (ajustado con la historia anterior al último corte de entrenamiento: r 0,9091, α 75,83, a 0,1717, b 105,91), B4 los días de compra en 365 días y B5 1 − P(vivo), informativa. B* es la de mayor AUC en la validación entre B2, B3 y B4: BG/NBD.
+
+#### 3.4.2 Decisiones de modelado y ablación (ADR)
+
+- **Clasificador.** `HistGradientBoostingClassifier` de scikit-learn con una grilla fija de ocho configuraciones por conjunto (24 ajustes de 300 iteraciones, sin parada temprana). Se elige el de menor pérdida logarítmica en V1: F1, tasa de aprendizaje 0,05, 15 hojas y 200 filas por hoja. El país no entra en el modelo elegido.
+- **Calibración.** Regresión isotónica ajustada solo con V1 sobre el clasificador congelado; las reglas se calibran igual, para decidir con ellas por costo.
+- **Motivos de cada cliente.** SHAP (`TreeExplainer`) sobre el log-odds del clasificador sin calibrar: la suma de las contribuciones más el valor base reproduce el log-odds de cada fila explicada con un error de a lo sumo 10⁻⁶, o la tarea falla. Se guardan los tres motivos de mayor contribución hacia el riesgo.
+- **Umbral por costo.** El valor de 0,01 a 0,99 que maximiza en V2 el beneficio neto de contactar, `bajas × tasa de rescate × valor − costo de la oferta`, nunca F1: con los costos supuestos, 0,55. Para cada punto de equilibrio de 0,10 a 0,90 se repite la elección para el modelo y B*.
+
+Ecuaciones, límites y resultados de cada método en la [ficha del modelo](docs/model-card.md). La curva de ganancia sigue a Verbeke y otros (2012, https://doi.org/10.1016/j.ejor.2011.09.031): lo que se evalúa es cuántas bajas capta una lista de contacto de cada tamaño y cuánto deja actuar, no solo el AUC.
+
+#### 3.4.3 Protocolo de validación (backtesting / cross-validation)
+
+No hay validación cruzada aleatoria: la validación es una partición en el tiempo, con una prueba evaluada una sola vez bajo un sello.
+
+La partición en el tiempo, por fecha de corte, con purgas de al menos N días entre bloques:
+
+| Bloque | Cortes | Filas | Bajas | Para qué |
+| --- | --- | ---: | ---: | --- |
+| Entrenamiento | 2010-06-01 a 2010-12-01 (7) | 15.297 | 43,2 % | Ajustar los modelos, las reglas y BG/NBD |
+| Purga 1 | 2011-01-01 y 2011-02-01 | — | — | Ninguno |
+| V1 | 2011-03-01 y 2011-04-01 | 3.449 | 42,6 % | Elegir y calibrar el modelo y las reglas, y elegir B* |
+| V2 | 2011-05-01 | 1.886 | 40,6 % | Elegir el umbral por costo |
+| Purga 2 | 2011-06-01 y 2011-07-01 | — | — | Ninguno |
+| Prueba | 2011-08-01 y 2011-09-01 | 3.935 | 34,4 % | Evaluar una sola vez, bajo el sello |
+| Censurados | 2011-10-01 a 2011-12-01 (3) | — | — | Se puntúan y se siguen; su ventana termina después de los datos |
+
+- **Intervalos.** Remuestreo pareado por clientes enteros de la prueba, 1.000 remuestras con semilla 0, los mismos índices para los dos puntajes.
+
+### 3.5 Consumo y gobernanza
+
+Las tablas y el diseño del tablero, los archivos del sitio y los reportes de cada corrida están en [4.1](#41-entregables-operativos). La documentación que acompaña al flujo:
+
+| Documento | Qué contiene |
+| --- | --- |
+| [docs/research.md](docs/research.md) | La investigación del conjunto de datos: la fuente, la etiqueta, las reglas y una primera mirada |
+| [docs/requirements.md](docs/requirements.md) | Requerimientos, datos medidos y criterios de aceptación, con los criterios del modelo fijados antes de construir |
+| [docs/plan.md](docs/plan.md) | Arquitectura, módulos, contratos y unidades de trabajo |
+| [docs/decisions.md](docs/decisions.md) | Registro de decisiones, cada una con su contexto, opciones, decisión, motivo, lo que afecta, quién y estado |
+| [docs/model-card.md](docs/model-card.md) | Ficha del modelo: uso, datos, la etiqueta y su ruido, métodos, resultados, sensibilidades, rendimiento y límites |
+| [docs/data-dictionary.md](docs/data-dictionary.md) | Diccionario de datos: las 8 columnas de la fuente con su uso, las 16 variables con su unidad y cada columna de las 27 tablas del modelo estrella, la privada incluida |
+| [docs/runbook.md](docs/runbook.md) | Qué hacer ante una huella distinta, una entrega rechazada, la trampa de fuga, un sello que no se reproduce, un bloqueo de la carpeta de datos y más (R1-R14), con los comandos y sus códigos de salida |
+| [docs/paso-a-paso.md](docs/paso-a-paso.md) | Cómo se construyó, unidad por unidad, con sus commits |
+| [docs/review-advisories.md](docs/review-advisories.md) | Las advertencias de las revisiones nativas, una sección por revisión, con su estado |
+| [docs/evaluation.md](docs/evaluation.md) | La evaluación independiente de `e28b1fb` (L55): quién y cómo, las especificaciones, los criterios C01-C10 declarados contra los recalculados, las sondas, el bloqueante y las 18 advertencias, las correcciones con sus commits y su comprobación (L56) |
+
+## 4. Producto final
+
+### 4.1 Entregables operativos
+
+- **Tablas para Power BI:** 26 archivos Parquet (9 dimensiones y 17 hechos) en `outputs/powerbi/`, con 19 relaciones uno a varios y filtro en un solo sentido (la 19, de `dim_as_of` a `fact_tracking`, desde D90), claves únicas e integridad referencial verificadas antes de escribir, y un manifiesto con la huella de cada uno; suman 158.405 bytes. El hecho por cliente y corte, el único que lleva el número de cliente, se escribe en `outputs/private/`, que no se versiona.
+- **Diseño del tablero:** [dashboard/powerbi-design.html](dashboard/powerbi-design.html), un solo archivo de 108.129 bytes, sin recursos externos, con el modelo semántico, las relaciones, 29 medidas DAX, tres parámetros de hipótesis para los costos supuestos (costo de la oferta, tasa de rescate y valor del cliente retenido), la carga en Power Query y cinco páginas (clientes en riesgo y sus motivos, ganancia y costos, seguimiento, validación del modelo, calidad y corridas) con vistas previas dibujadas con los números reales; la columna de cliente de la lista se muestra enmascarada. El `.pbix` requiere la interfaz gráfica de Power BI Desktop y no está hecho; las medidas DAX no se ejecutaron nunca.
+- **Archivos para el sitio:** cinco JSON pequeños en `outputs/site/` (resumen, etiqueta, reglas de validación, algoritmos y retención) y un manifiesto con la huella de cada uno, 71.424 bytes sin el manifiesto; sin el número de cliente ni ningún identificador, con las celdas de menos de 10 clientes ocultas y la regla secundaria que impide recuperarlas por resta.
+- **Reportes:** `reports/evaluation_summary.json` y `.md` (los resultados de arriba), `reports/model_seal.json` (el sello) y `reports/validation/latest.md` (la última validación).
+
+### 4.2 Lectura de resultados actuales
+
+Corrida real del 2026-11-12 sobre el zip de UCI (huella SHA-256 `572e3627…7bfb`): el lanzamiento al 2011-07-31, cuatro entregas mensuales (2011-08 a 2011-11), el cierre con los 9 días de 2011-12 y una corrida sin entrega. El modelo se entrenó con siete cortes de 2010, se eligió y calibró con los de marzo y abril de 2011 (V1) y eligió su umbral con el de mayo (V2); la prueba, los cortes del 2011-08-01 y del 2011-09-01 (3.935 filas de 2.017 y 1.918 clientes, 34,4 % de bajas), se evaluó una sola vez y quedó en el sello `reports/model_seal.json`, que no se reescribe. Los criterios se fijaron y se confirmaron en Git antes del primer código (`docs/requirements.md`, sección 8.1; `docs/decisions.md`, D18), junto con lo que se esperaba: que el modelo no cumpliera C02, C03 ni C07. **Así salió, y peor: el modelo no supera ningún criterio de orden ni de beneficio (C01-C05, C09), no cumple el de calibración (C07) y cumple solo C06 y C08.**
+
+En el seguimiento, en los dos cortes de prueba el modelo esperaba 875,0 y 825,2 bajas, y hubo 739 y 615. Las figuras de la corrida:
+
+![La tasa de bajas de cada corte, por bloque de la partición](docs/figures/churn_by_cut.png)
+
+![La tasa de bajas según N y M, y los silencios que vuelven](docs/figures/label_n_by_m.png)
+
+![La curva de ganancia del modelo y de las reglas en la prueba](docs/figures/gain_curve.png)
+
+![El beneficio neto del modelo y de B* en V2 según el punto de equilibrio del costo](docs/figures/cost_curve.png)
+
+![La calibración del modelo en la prueba](docs/figures/calibration.png)
+
+![La importancia media de cada variable según SHAP](docs/figures/shap_importance.png)
+
+![Los clientes que volvieron y los que se fueron, corte por corte](docs/figures/retention_by_cut.png)
+
+## 5. Conclusión
+
+### 5.1 Evaluación frente a criterios de éxito
+
+**Cómo leerlo.**
+
+- **El orden de los clientes: el modelo no supera a las reglas.** Su AUC en la prueba es 0,745; el de RFM 0,746, el de BG/NBD (B*, la base más fuerte elegida en la validación) 0,749 y el de la frecuencia de 365 días 0,752, la más alta de todas. La recencia sola da 0,600. Frente a RFM la diferencia es −0,0017, con un intervalo del 95 % de −0,0145 a 0,0110 (C01 y C02 no se cumplen); frente a B*, −0,0043, de −0,0166 a 0,0078 (C03 no se cumple). Ninguna diferencia sale del ruido: con unos 2.000 clientes por corte, la prueba no separa diferencias de menos de unas 0,01 de AUC. **El modelo no supera a RFM ni a B*, y la frecuencia sola ordena mejor que los tres.**
+- **El beneficio con los costos supuestos: tampoco.** Con una oferta de 5 u., una tasa de rescate de 0,2 y un cliente retenido que vale 50 u. (punto de equilibrio 0,5), el modelo contacta al 26,5 % de los clientes con su umbral de 0,55 y deja 209,7 u. por cada 1.000 clientes; B* deja 238,9 con su propio umbral (C05 no se cumple), RFM 209,7 y la frecuencia 106,7; contactar a todos pierde 1.559,1. En el 10 % de mayor riesgo, el modelo capta 253 bajas y B* 268 (C04 no se cumple). En la curva de costo, el modelo deja al menos lo de B* en 9 de los 17 puntos de equilibrio de 0,10 a 0,90 (C09 no se cumple).
+- **Lo que sí cumple.** Actuar con el modelo deja más que no contactar a nadie y que contactar a todos (C06: 209,7 u. frente a 0), y su Brier, 0,1976, es menor que el de B*, 0,2030 (C08), aunque mayor que el de RFM, 0,1956.
+- **La calibración falla, como se esperaba.** El modelo se calibró en V1, con 42,6 % de bajas, y la prueba, de agosto a noviembre, tiene 34,4 %: el error de calibración esperado es 0,089 y el sesgo 0,088, frente a 0,03 y 0,02 (C07 no se cumple). En el seguimiento se ve igual: en los dos cortes de prueba el modelo esperaba 875,0 y 825,2 bajas, y hubo 739 y 615.
+- **Por corte y con otras definiciones, lo mismo** (C10, informativo): el AUC del modelo es 0,744 y 0,746 en los dos cortes; con N = 60, N = 120, M = 180 o sin el corte de diciembre en el entrenamiento, el intervalo de la diferencia con B* siempre contiene el cero o queda por debajo (con M = 180, de −0,021 a −0,0003).
+- **Lo que esto quiere decir para un equipo de retención:** con las facturas, una regla que cuente cuántos días compró cada cliente en el último año ordena el riesgo igual o mejor que el modelo. Lo que el modelo agrega es una probabilidad (mal calibrada en la prueba) y los motivos de cada cliente, no un mejor orden. El aporte del proyecto es haberlo medido con la etiqueta, los cortes y la prueba sellada escritos antes, y dejar el flujo, el seguimiento, el tablero y la curva de costo listos para usarlos con la regla.
+
+La tabla completa de los criterios, con el umbral, el valor y el veredicto de cada uno, está en [Resultados completos de la corrida](#resultados-completos-de-la-corrida).
+
+### 5.2 Limitaciones metodológicas
+
+Lo que no sirve: decir quién se dio de baja de verdad (la baja es un silencio definido, no un dato), medir el efecto de una oferta (no hay un experimento de retención), poner un costo real a una oferta o a un cliente (los datos no lo traen), predecir a los clientes sin número ni a los que llevan más de 90 días sin comprar, ni reemplazar una evaluación con datos de otra tienda: es un archivo de una sola tienda, de 2009 a 2011.
+
+Las limitaciones completas (un solo archivo, sin bajas comprobadas ni experimento de retención, costos supuestos, cortes censurados, evaluación única, calibración que depende del período) están en la [ficha del modelo](docs/model-card.md).
+
+### 5.3 Trabajo futuro
+
+- **Lo que sigue pendiente:** la evaluación independiente, sus correcciones y su comprobación ya se hicieron y están en [docs/evaluation.md](docs/evaluation.md) (plan, sección 28); falta la corrida programada de Airflow sobre el archivo real (la prueba de Docker pasa en modo rápido), los costos reales de una oferta y el `.pbix`, que requiere Power BI Desktop. El detalle está en la [ficha del modelo](docs/model-card.md).
+
+Todavía no están hechos la corrida programada de Airflow sobre el archivo real y el `.pbix`.
+
+## Resultados completos de la corrida
+
+El bloque siguiente no se escribe a mano: lo copia `python -m churnrisk docs-sync` de `reports/evaluation_summary.md`, que escribe el propio flujo, con sus títulos un nivel más abajo.
 
 <!-- results:start -->
 ### Resultados
@@ -48,145 +239,15 @@ Criterios fijados antes de construir, evaluados una vez sobre la prueba.
 Estado: sealed. Corrida 20261112T182457477294Z del 2011-12-09.
 <!-- results:end -->
 
-**Cómo leerlo.**
+## Revisiones y evaluación
 
-- **El orden de los clientes: el modelo no supera a las reglas.** Su AUC en la prueba es 0,745; el de RFM 0,746, el de BG/NBD (B*, la base más fuerte elegida en la validación) 0,749 y el de la frecuencia de 365 días 0,752, la más alta de todas. La recencia sola da 0,600. Frente a RFM la diferencia es −0,0017, con un intervalo del 95 % de −0,0145 a 0,0110 (C01 y C02 no se cumplen); frente a B*, −0,0043, de −0,0166 a 0,0078 (C03 no se cumple). Ninguna diferencia sale del ruido: con unos 2.000 clientes por corte, la prueba no separa diferencias de menos de unas 0,01 de AUC. **El modelo no supera a RFM ni a B*, y la frecuencia sola ordena mejor que los tres.**
-- **El beneficio con los costos supuestos: tampoco.** Con una oferta de 5 u., una tasa de rescate de 0,2 y un cliente retenido que vale 50 u. (punto de equilibrio 0,5), el modelo contacta al 26,5 % de los clientes con su umbral de 0,55 y deja 209,7 u. por cada 1.000 clientes; B* deja 238,9 con su propio umbral (C05 no se cumple), RFM 209,7 y la frecuencia 106,7; contactar a todos pierde 1.559,1. En el 10 % de mayor riesgo, el modelo capta 253 bajas y B* 268 (C04 no se cumple). En la curva de costo, el modelo deja al menos lo de B* en 9 de los 17 puntos de equilibrio de 0,10 a 0,90 (C09 no se cumple).
-- **Lo que sí cumple.** Actuar con el modelo deja más que no contactar a nadie y que contactar a todos (C06: 209,7 u. frente a 0), y su Brier, 0,1976, es menor que el de B*, 0,2030 (C08), aunque mayor que el de RFM, 0,1956.
-- **La calibración falla, como se esperaba.** El modelo se calibró en V1, con 42,6 % de bajas, y la prueba, de agosto a noviembre, tiene 34,4 %: el error de calibración esperado es 0,089 y el sesgo 0,088, frente a 0,03 y 0,02 (C07 no se cumple). En el seguimiento se ve igual: en los dos cortes de prueba el modelo esperaba 875,0 y 825,2 bajas, y hubo 739 y 615.
-- **Por corte y con otras definiciones, lo mismo** (C10, informativo): el AUC del modelo es 0,744 y 0,746 en los dos cortes; con N = 60, N = 120, M = 180 o sin el corte de diciembre en el entrenamiento, el intervalo de la diferencia con B* siempre contiene el cero o queda por debajo (con M = 180, de −0,021 a −0,0003).
-- **Lo que esto quiere decir para un equipo de retención:** con las facturas, una regla que cuente cuántos días compró cada cliente en el último año ordena el riesgo igual o mejor que el modelo. Lo que el modelo agrega es una probabilidad (mal calibrada en la prueba) y los motivos de cada cliente, no un mejor orden. El aporte del proyecto es haberlo medido con la etiqueta, los cortes y la prueba sellada escritos antes, y dejar el flujo, el seguimiento, el tablero y la curva de costo listos para usarlos con la regla.
-- **Lo que sigue pendiente:** la evaluación independiente, sus correcciones y su comprobación por otro agente ya se hicieron y están en [docs/evaluation.md](docs/evaluation.md) (plan, sección 28); falta la página del sitio, la corrida programada de Airflow sobre el archivo real (la prueba de Docker pasa en modo rápido), los costos reales de una oferta y el `.pbix`, que requiere Power BI Desktop. El detalle está en la [ficha del modelo](docs/model-card.md).
+La evaluación independiente evaluó `e28b1fb` en un clon aparte, con su propio lector del libro, su propio neteo, sus cortes, sus etiquetas, sus reglas y su BG/NBD: reprodujo cada cifra del resumen, corrió la repetición real y `-m docker` (2 pasaron en 147,6 s, en `e28b1fb`) y encontró un bloqueante, que la documentación decía de U30 y U31 cosas que el registro todavía no tenía (B1), y 18 advertencias (A1-A18; L55). Las correcciones elegidas se hicieron cada una con la prueba primero: `c139ca2`, `aad019b`, `1829c5f`, `969f2b4`, `07d2a54` y `ab8f0e4` (D89-D92), y después una tanda de velocidad de la suite (`816289e`, `94843fd`, D93). La comprobación de las correcciones rehízo cada prueba en clones de `e28b1fb` y de `94843fd`: cerró B1, A1, A2, A4, A5, A10, A11, A13, A14, A16 y D93; repitió la corrida real, que reproduce cada salida versionada salvo las claves de corrida y las horas, y no encontró ningún bloqueante nuevo (L56). El informe, con la comprobación, es [docs/evaluation.md](docs/evaluation.md).
 
-![La tasa de bajas de cada corte, por bloque de la partición](docs/figures/churn_by_cut.png)
-
-![La tasa de bajas según N y M, y los silencios que vuelven](docs/figures/label_n_by_m.png)
-
-![La curva de ganancia del modelo y de las reglas en la prueba](docs/figures/gain_curve.png)
-
-![El beneficio neto del modelo y de B* en V2 según el punto de equilibrio del costo](docs/figures/cost_curve.png)
-
-![La calibración del modelo en la prueba](docs/figures/calibration.png)
-
-![La importancia media de cada variable según SHAP](docs/figures/shap_importance.png)
-
-![Los clientes que volvieron y los que se fueron, corte por corte](docs/figures/retention_by_cut.png)
-
-## En qué consiste
-
-Doce tareas que corren siempre en este orden, las mismas desde la línea de comandos (`python -m churnrisk run`) y desde el DAG de Apache Airflow (`churnrisk_monthly`):
-
-```mermaid
-flowchart LR
-  A[fetch_source<br/>zip con huella fijada] --> B[deliver<br/>la siguiente entrega]
-  B --> C[validate<br/>39 reglas]
-  C --> D[load<br/>SQLite, todo o nada]
-  D --> E[build_cuts<br/>población, etiqueta y variables]
-  E --> F[fit_model<br/>entrena y congela en el lanzamiento]
-  F --> G[score<br/>riesgo y motivos de cada activo]
-  G --> H[track<br/>quién volvió y quién no]
-  H --> I[evaluate<br/>V2 y, una vez, la prueba]
-  I --> J[export<br/>26 Parquet y 5 JSON]
-  J --> K[render_dashboard<br/>HTML]
-  K --> L[report<br/>cierra la corrida]
-```
-
-La segunda tarea hace de sistema de origen: como el archivo es histórico, el flujo lo reparte en un lanzamiento con las facturas hasta el 2011-07-31, cuatro entregas mensuales (2011-08 a 2011-11) y un cierre con los 9 días de 2011-12. Una línea va en la entrega de la fecha de su factura. Con ninguna entrega pendiente, la corrida termina como `no_delivery`. La tercera tarea corta el flujo, sin tocar nada, si la entrega no cumple el contrato.
-
-Un corte es el día 1 de un mes. Su población son los clientes con al menos una compra neta en los 90 días anteriores (M = 90), y un cliente de la población se fue si no tiene ninguna compra neta en los 90 días desde el corte (N = 90); la etiqueta entra al almacén recién cuando esa ventana cerró. Las variables de un corte salen solo de lo anterior a él. El modelo se entrena una sola vez, en el lanzamiento, y queda congelado: su artefacto se carga solo si su SHA-256 coincide con el registrado, y cada corrida puntúa una vez a los activos de su corte, sin cambiar nunca un puntaje emitido. El sello guarda la configuración del lanzamiento y el primer resultado de la prueba; una evaluación con otra configuración se informa aparte, como posterior al sello. Un solo proceso escribe la carpeta de datos a la vez: cada tarea toma el bloqueo `data/interim/pipeline.lock`, y un segundo proceso se rechaza sin escribir nada.
-
-Sobre la integridad de la descarga: el zip llega por HTTPS desde `archive.ics.uci.edu`; cada salto debe ir a un host de la lista, con a lo sumo tres redirecciones, 64 MiB y 900 s, y el archivo se acepta solo si su SHA-256 es el fijado en la configuración (el mismo que fijó el proyecto 02). El libro de Excel de adentro se trata como no confiable: miembro exacto, sin rutas, con tope descomprimido y su propia huella.
-
-## Los datos
-
-| | |
-| --- | --- |
-| Fuente | UCI Machine Learning Repository, «Online Retail II», de Daqing Chen (https://doi.org/10.24432/C5CG6D) |
-| Archivo | `online_retail_ii.zip`, 45.622.418 bytes; adentro, `online_retail_II.xlsx`, con dos hojas y 8 columnas |
-| Período | Facturas del 2009-12-01 al 2011-12-09 |
-| Filas | 1.067.371; sin las 22.523 copias exactas del solapamiento entre las dos hojas quedan 1.044.848 líneas (11.812 repeticiones internas se conservan y se marcan) |
-| Roles | 788.187 compras, 17.641 anulaciones y 239.020 líneas apartadas por la primera regla que las aparta (sin cliente, precio cero, códigos de servicio, vales, facturas «A») |
-| Invitados | 235.287 líneas sin número de cliente (22,5 % de las líneas y 15,1 % del importe): no se pueden seguir en el tiempo y quedan fuera |
-| Clientes | 5.942 con al menos una compra, de 41 países (91 % del Reino Unido) |
-| Etiqueta | La baja no está en los datos: se define como ninguna compra neta en los 90 días desde el corte, entre los activos de los 90 días anteriores |
-| Ruido | En el entrenamiento, el 31,7 % de los 6.611 silencios de 90 días vuelve a comprar en los 90 siguientes; la investigación midió 39 % sobre el archivo completo |
-
-La partición en el tiempo, por fecha de corte, con purgas de al menos N días entre bloques:
-
-| Bloque | Cortes | Filas | Bajas | Para qué |
-| --- | --- | ---: | ---: | --- |
-| Entrenamiento | 2010-06-01 a 2010-12-01 (7) | 15.297 | 43,2 % | Ajustar los modelos, las reglas y BG/NBD |
-| Purga 1 | 2011-01-01 y 2011-02-01 | — | — | Ninguno |
-| V1 | 2011-03-01 y 2011-04-01 | 3.449 | 42,6 % | Elegir y calibrar el modelo y las reglas, y elegir B* |
-| V2 | 2011-05-01 | 1.886 | 40,6 % | Elegir el umbral por costo |
-| Purga 2 | 2011-06-01 y 2011-07-01 | — | — | Ninguno |
-| Prueba | 2011-08-01 y 2011-09-01 | 3.935 | 34,4 % | Evaluar una sola vez, bajo el sello |
-| Censurados | 2011-10-01 a 2011-12-01 (3) | — | — | Se puntúan y se siguen; su ventana termina después de los datos |
-
-## Los algoritmos
-
-- **Variables de lo anterior al corte.** Dieciséis: recencia, antigüedad, días de compra (todos, en 90 y en 365 días), gasto (total, en 90 y en 365 días), gasto por día de compra, unidades en 90 días, tiempo medio y máximo entre compras, productos distintos y unidades medianas por línea en 365 días, y anulaciones y su importe en 365 días; además el país de la última línea, como indicadores. Tres conjuntos: F0 (recencia y frecuencia de 365 días), F1 (las dieciséis) y F2 (F1 y el país). Una lista permitida, un error propio (`LeakageError`), una prueba de truncamiento y una de perturbación impiden que la etiqueta, el número de cliente o una variable de calendario lleguen a la matriz, y una trampa detiene el lanzamiento si el AUC del modelo elegido llega a 0,95 en V1.
-- **Clasificador.** `HistGradientBoostingClassifier` de scikit-learn con una grilla fija de ocho configuraciones por conjunto (24 ajustes de 300 iteraciones, sin parada temprana). Se elige el de menor pérdida logarítmica en V1: F1, tasa de aprendizaje 0,05, 15 hojas y 200 filas por hoja. El país no entra en el modelo elegido.
-- **Calibración.** Regresión isotónica ajustada solo con V1 sobre el clasificador congelado; las reglas se calibran igual, para decidir con ellas por costo.
-- **Motivos de cada cliente.** SHAP (`TreeExplainer`) sobre el log-odds del clasificador sin calibrar: la suma de las contribuciones más el valor base reproduce el log-odds de cada fila explicada con un error de a lo sumo 10⁻⁶, o la tarea falla. Se guardan los tres motivos de mayor contribución hacia el riesgo.
-- **Umbral por costo.** El valor de 0,01 a 0,99 que maximiza en V2 el beneficio neto de contactar, `bajas × tasa de rescate × valor − costo de la oferta`, nunca F1: con los costos supuestos, 0,55. Para cada punto de equilibrio de 0,10 a 0,90 se repite la elección para el modelo y B*.
-- **Reglas de comparación.** B0 contactar a todos, B1 la recencia, B2 RFM (quintiles de recencia, frecuencia y gasto de 365 días), B3 las compras esperadas en 90 días según BG/NBD (ajustado con la historia anterior al último corte de entrenamiento: r 0,9091, α 75,83, a 0,1717, b 105,91), B4 los días de compra en 365 días y B5 1 − P(vivo), informativa. B* es la de mayor AUC en la validación entre B2, B3 y B4: BG/NBD.
-- **Intervalos.** Remuestreo pareado por clientes enteros de la prueba, 1.000 remuestras con semilla 0, los mismos índices para los dos puntajes.
-
-Ecuaciones, límites y resultados de cada método en la [ficha del modelo](docs/model-card.md). La curva de ganancia sigue a Verbeke y otros (2012, https://doi.org/10.1016/j.ejor.2011.09.031): lo que se evalúa es cuántas bajas capta una lista de contacto de cada tamaño y cuánto deja actuar, no solo el AUC.
-
-## El producto
-
-- **Tablas para Power BI:** 26 archivos Parquet (9 dimensiones y 17 hechos) en `outputs/powerbi/`, con 19 relaciones uno a varios y filtro en un solo sentido (la 19, de `dim_as_of` a `fact_tracking`, desde D90), claves únicas e integridad referencial verificadas antes de escribir, y un manifiesto con la huella de cada uno; suman 158.405 bytes. El hecho por cliente y corte, el único que lleva el número de cliente, se escribe en `outputs/private/`, que no se versiona.
-- **Diseño del tablero:** [dashboard/powerbi-design.html](dashboard/powerbi-design.html), un solo archivo de 108.129 bytes, sin recursos externos, con el modelo semántico, las relaciones, 29 medidas DAX, tres parámetros de hipótesis para los costos supuestos (costo de la oferta, tasa de rescate y valor del cliente retenido), la carga en Power Query y cinco páginas (clientes en riesgo y sus motivos, ganancia y costos, seguimiento, validación del modelo, calidad y corridas) con vistas previas dibujadas con los números reales; la columna de cliente de la lista se muestra enmascarada. El `.pbix` requiere la interfaz gráfica de Power BI Desktop y no está hecho; las medidas DAX no se ejecutaron nunca.
-- **Archivos para el sitio:** cinco JSON pequeños en `outputs/site/` (resumen, etiqueta, reglas de validación, algoritmos y retención) y un manifiesto con la huella de cada uno, 71.424 bytes sin el manifiesto; sin el número de cliente ni ningún identificador, con las celdas de menos de 10 clientes ocultas y la regla secundaria que impide recuperarlas por resta.
-- **Reportes:** `reports/evaluation_summary.json` y `.md` (los resultados de arriba), `reports/model_seal.json` (el sello) y `reports/validation/latest.md` (la última validación).
-- **Orquestación:** la línea de comandos y el DAG de Airflow sobre Docker Compose, con las mismas tareas y las mismas funciones. La función de puntuación queda lista para envolverla en un servicio; no hay una API.
-
-## La documentación
-
-| Documento | Qué contiene |
-| --- | --- |
-| [docs/research.md](docs/research.md) | La investigación del conjunto de datos: la fuente, la etiqueta, las reglas y una primera mirada |
-| [docs/requirements.md](docs/requirements.md) | Requerimientos, datos medidos y criterios de aceptación, con los criterios del modelo fijados antes de construir |
-| [docs/plan.md](docs/plan.md) | Arquitectura, módulos, contratos y unidades de trabajo |
-| [docs/decisions.md](docs/decisions.md) | Registro de decisiones, cada una con su contexto, opciones, decisión, motivo, lo que afecta, quién y estado |
-| [docs/model-card.md](docs/model-card.md) | Ficha del modelo: uso, datos, la etiqueta y su ruido, métodos, resultados, sensibilidades, rendimiento y límites |
-| [docs/data-dictionary.md](docs/data-dictionary.md) | Diccionario de datos: las 8 columnas de la fuente con su uso, las 16 variables con su unidad y cada columna de las 27 tablas del modelo estrella, la privada incluida |
-| [docs/runbook.md](docs/runbook.md) | Qué hacer ante una huella distinta, una entrega rechazada, la trampa de fuga, un sello que no se reproduce, un bloqueo de la carpeta de datos y más (R1-R14), con los comandos y sus códigos de salida |
-| [docs/paso-a-paso.md](docs/paso-a-paso.md) | Cómo se construyó, unidad por unidad, con sus commits |
-| [docs/review-advisories.md](docs/review-advisories.md) | Las advertencias de las revisiones nativas, una sección por revisión, con su estado |
-| [docs/evaluation.md](docs/evaluation.md) | La evaluación independiente de `e28b1fb` (L55): quién y cómo, las especificaciones, los criterios C01-C10 declarados contra los recalculados, las sondas, el bloqueante y las 18 advertencias, las correcciones con sus commits y la comprobación de otro agente (L56) |
-
-## Con IA, de punta a punta
-
-Este proyecto lo construyeron agentes de IA, cada uno con el modelo que el dueño pidió para su tarea (Haiku para investigar, Opus para los planes, la arquitectura y la programación de este proyecto, Sonnet para tareas de programación acotadas), con una persona definiendo el rumbo. Lo que sigue es lo que consta en el registro del documento de seguimiento (`odd/tasks/portfolio-projects.md`, L44 a L56) y en `git log`:
-
-- **Investigación.** Un agente con Haiku copió de la carpeta del proyecto 02 el zip y el libro de UCI y comprobó que sus huellas son las fijadas allí, perfiló la calidad para medir bajas (invitados, anulaciones, códigos de servicio, países), propuso N = 90 y M = 90, los cortes y la partición, midió las reglas en el primer corte de validación e hizo una primera mirada del modelo, que no superó a RFM; comprobó que SHAP es aditivo solo con el país como indicadores y escribió `research.md` sin calcular nada sobre los cortes de prueba (`00378f8`).
-- **Requerimientos y plan.** Un agente con Opus repitió parte de la medición solo con los cortes de entrenamiento: encontró que la frecuencia sola ordena mejor que RFM y que BG/NBD en el entrenamiento, comprobó que el BG/NBD con SciPy del proyecto 02 da las mismas compras esperadas que `lifetimes`, midió las tasas de cada corte, fijó los criterios C01-C10, escribió que C02, C03 y C07 probablemente no se cumplirían y planificó 31 unidades de trabajo; todo se confirmó en Git antes de la primera línea de código (`7ec593b`).
-- **Programación.** Agentes con Opus construyeron el proyecto por tandas de hasta cinco unidades, de U01 a U29, con la prueba escrita primero y vista fallar y mutaciones de cada regla atrapadas por una prueba con nombre. Cuando no fue así, el registro lo dice: U22 a U25 no se escribieron con la prueba primero, y sus REDs se recuperaron quitando cada regla en una copia. Agentes con Sonnet escribieron una tanda de correcciones de advertencias (G1), las correcciones que pidieron cuatro revisiones y la tanda de velocidad que sigue a las correcciones de la evaluación (`816289e`, D93). Entre tandas, la suite rápida se hizo más barata seis veces sin quitar casos; quedó sobre el presupuesto de trabajo de 100 s y dentro del límite de 120 s, y se aceptó así, sin sumar `pytest-xdist` (D35).
-- **Revisión.** La revisión nativa de Gentle AI revisó 34 veces: cada unidad de riesgo alto sola y el resto en tramos, con el consentimiento aceptado de forma automática por pedido del dueño. Cuatro revisiones pidieron una corrección acotada que se hizo y se aprobó: los calibradores de las reglas por versión del modelo (`4e21c1a`), las celdas chicas ocultas en el diseño del tablero (`15fe8d1`), la tabla de corridas reescrita en un cierre sin entrega (`c18e47f`) y el filtro de fechas de la página de seguimiento, que no filtraba nada (`fe25112`). La de U19 terminó escalada: un hallazgo bloqueante que era falso (el caso de prueba que decía faltar existe desde U03) y una corrección que el validador no pudo leer; el dueño publicó el defecto de Gentle AI como gentle-ai#6106. Las de U06-U10 y U29 superaron el presupuesto de contexto de la revisión y se hicieron por partes. Las demás aprobaron con advertencias o sin ellas. Después de la evaluación, la revisión nativa revisó 9 veces más (43 en total; L56): U30 sola, las partes 1 y 3 de U31 (las partes 2 y 4, pasivas, no se revisaron), la corrección A1 sola, la del tablero (A10) en su código y en las líneas regeneradas del HTML (la línea de los lienzos de las páginas, de unos 66 KB, no cabe en el presupuesto de ninguna revisión y no tuvo revisión: se revisó su generador y la comprobación la comparó), las de A4 y A5, las de A11, A2, A14 y A13 con `07d2a54`, y la documentación con la tanda de velocidad; todas aprobaron.
-- **La corrida real, dos veces.** Un agente con Opus corrió la repetición completa sobre el archivo real con los costos y N y M tal como estaban, porque el dueño no eligió otros. Antes de versionar, la revisión de privacidad encontró en dos Parquet celdas de menos de 10 clientes que el sitio oculta; se corrigió el SQL (`4d0a36b`, D86) y la misma corrida se repitió en una copia nueva del proyecto: su sello coincide con el primero en los 485 valores salvo las dos claves de corrida, así que se versionaron las salidas de la repetición y el sello de la primera, byte a byte (`a108a12`, D85). Nada se ajustó después de ver la prueba.
-- **La revisión de la corrida, por partes.** U29 tenía 5.855 líneas, más que el presupuesto de contexto de una revisión: se revisó en partes (la prueba, D85, el sello y el resumen; el reporte de validación; los Parquet; el HTML; las figuras, sin revisión porque son binarios; los archivos del sitio; `algorithms.json`), y la del HTML encontró el filtro de fechas mal enlazado.
-- **Este README y la documentación.** Un agente con Opus escribió este README y la ficha del modelo (U30, `3ec6052`) y el resto de la documentación (U31, `e28b1fb`), cada unidad con la prueba primero (L54). La sincronización de la documentación con las correcciones (este informe de evaluación, las advertencias de las nuevas revisiones, el paso a paso y las cifras de la suite) es el commit que sigue a `b5637a6`; quién la escribió lo dirá el registro cuando la registre.
-- **La evaluación independiente.** Un agente con Opus que no construyó el proyecto evaluó `e28b1fb` en un clon aparte, con su propio lector del libro, su propio neteo, sus cortes, sus etiquetas, sus reglas y su BG/NBD: reprodujo cada cifra del resumen, corrió la repetición real y `-m docker` (2 pasaron en 147,6 s, en `e28b1fb`) y encontró un bloqueante, que la documentación decía de U30 y U31 cosas que el registro todavía no tenía (B1), y 18 advertencias (A1-A18; L55). Un agente con Opus corrigió las que eligió el registro, cada una con la prueba primero: `c139ca2`, `aad019b`, `1829c5f`, `969f2b4`, `07d2a54` y `ab8f0e4`, el commit de documentación que los sigue (D89-D92). Como la suite quedó sin margen bajo el límite, un agente con Sonnet escribió después una tanda de velocidad (`816289e`, `94843fd`, D93).
-- **La comprobación de las correcciones.** Un agente con Opus que no construyó ni corrigió el proyecto rehízo cada prueba en clones de `e28b1fb` y de `94843fd`: cerró B1 salvo una frase de este README, la de Docker de «Cómo correrlo de punta a punta»; cerró A1, A2, A4, A5, A10, A11, A13, A14, A16 y D93; repitió la corrida real, que reproduce cada salida versionada salvo las claves de corrida y las horas, y no encontró ningún bloqueante nuevo (L56). El informe, con la comprobación, es [docs/evaluation.md](docs/evaluation.md).
-- **Lo que no se hizo todavía.** La página del sitio, la corrida programada de Airflow sobre el archivo real y el `.pbix` todavía no están hechos.
-- **Memoria.** Engram guarda el contexto entre sesiones; el documento de seguimiento conserva las palabras del dueño tal cual y lo que hizo cada sesión.
+La corrida real se hizo dos veces. Antes de versionar, la revisión de privacidad encontró en dos Parquet celdas de menos de 10 clientes que el sitio oculta; se corrigió el SQL (`4d0a36b`, D86) y la misma corrida se repitió en una copia nueva del proyecto: su sello coincide con el primero en los 485 valores salvo las dos claves de corrida, así que se versionaron las salidas de la repetición y el sello de la primera, byte a byte (`a108a12`, D85). Nada se ajustó después de ver la prueba.
 
 Las revisiones dejaron 155 advertencias, el registro y U31 suman 7 hallazgos más y la evaluación independiente, un bloqueante y 18 advertencias; las 9 revisiones que siguieron a la evaluación (L56) dejaron 39 más y la comprobación de las correcciones, 2: 107 están corregidas, 28 se dejaron con evidencia y 87 siguen abiertas, ninguna bloqueante; cada una, con su revisión y su estado, está en [docs/review-advisories.md](docs/review-advisories.md). Cómo fue cada paso, con los commits, está en [docs/paso-a-paso.md](docs/paso-a-paso.md).
 
 Advertencias abiertas: `U01/R1-001`, `U01/R3-env-coupled-tests`, `U04/R1-002`, `U04/R4-staging-leak`, `U04/R4-deadline-slack`, `U05/R4-except-exception-mask`, `U05/R4-tempdir-hard-kill`, `U06-U10b/R4-write-lock-before-noop-check`, `U18/R3-run-variants-every-post-seal-call`, `U18/R3-definition-tables-lookahead-unverified`, `U20/R2-suppression-cte-duplicated`, `U20/R2-country-key-coalesce-duplicated`, `U20/R2-cryptic-unit-constant`, `U20/R2-star-keys-check-repetition`, `U21-U25a/R4-threshold-check-no-retroactive-migration`, `U21-U25a/R3-fixture-net-days-single-slot-cache-fragility`, `U21-U25b/R3-001`, `U21-U25b/R3-002`, `F1/R3-acquire-wait-no-timeout`, `F2/R2-bootstrap-offset-arithmetic`, `F2/R2-own-sheets-regex-xml`, `F2/R2-id-based-memoization`, `U27/R4-sqlite-race-window`, `U27/R4-postgres-password-rotation-restart-loop`, `U27/R3-002`, `U28/R2-figures-loadsite-duplicate-check`, `U28/R2-figures-shap-test-variable-name`, `G1/R4-figures-partial-rename-observability`, `G1/R2-cli-dup-module-literal`, `G1/R2-figures-reversed-exitstack-order`, `G1/R2-figures-duplicated-hidden-cell-logic`, `G1/R3-rename-partial-failure-untested`, `G1/R3-make-fixture-importerror-not-generalized`, `D86/R3-reason-tie-coverage`, `D86/R3-shap-passthrough-unverified`, `U29-1/R3-001`, `U29-1/R3-002`, `U29-1/R3-003`, `U29-2a/R3-1`, `U29-2a/R3-2`, `U29-2b/R3-manifest-integrity-unverified`, `U29-2b/R3-run-key-nondeterministic`, `U29-3/R1-001`, `U29-4/R3-001`, `U29-4/R3-002`, `Evaluación/A3`, `Evaluación/A6`, `Evaluación/A7`, `Evaluación/A8`, `Evaluación/A9`, `Evaluación/A12`, `Evaluación/A15`, `Evaluación/A17`, `Evaluación/A18`, `U30/R2-docs-sync-heading-regex-fence-unaware`, `U30/R2-docs-sync-param-name-type-shift`, `U30/R2-docs-sync-redundant-path-wrapping`, `U30/R3-heading-demotion-edge-cases`, `U31-1/R2-dict-fallback`, `U31-1/R2-figures-dir-coupling`, `U31-1/R3-dtype-keyerror`, `U31-3/R2-002`, `U31-3/R2-003`, `U31-3/R3-001`, `A1/R3-001`, `A1/R3-002`, `A10-código/R2-fragile-title-slicer-match`, `A10-código/R2-duplicate-title-literal`, `A10-código/R2-unexplained-constant-six`, `A10-código/R3-tables-of-overmatch`, `A10-HTML/R2-term-overload`, `A10-HTML/R2-dual-relationship-same-column`, `A10-HTML/R3-001`, `A10-HTML/R3-002`, `A4-A5/R2-verdict-c09-coupling`, `A4-A5/R2-verdict-int-truncation`, `A4-A5/R2-duplicated-cell-counter`, `A4-A5/R3-001`, `A4-A5/R3-002`, `A4-A5/R3-003`, `A11-A2-A14-A13/R3-pipeline-coverage-narrowed`, `A11-A2-A14-A13/R3-figures-fixture-session-sharing`, `A11-A2-A14-A13/R3-import-guard-limited-scope`, `Docs-velocidad/R2-conftest-gc-threshold-global-magic`, `Docs-velocidad/R3-gc-threshold-untested-cleanup-timing`, `Docs-velocidad/R3-gc-threshold-manual-only-validation`, `Comprobación/margen-de-la-suite` (cada una con la clave de su revisión y su id, como en el documento de advertencias).
-
-## Para qué sirve
-
-- **Un equipo de retención** obtiene cada mes la lista de clientes activos con su riesgo calibrado, sus tres motivos y una marca en los que conviene contactar según los costos que declare, y el seguimiento de cuántos volvieron.
-- **Quien decida con el modelo sabe cuánto confiar en él:** no ordena mejor que una regla de frecuencia, RFM o BG/NBD, y su probabilidad sobreestima las bajas cuando la tasa cambia. Si se quiere algo simple y auditable, la frecuencia de 365 días o RFM alcanzan; el flujo, el seguimiento, la curva de costo y el tablero sirven igual con ellas.
-- **Dirección** ve cuánto cambia la decisión de contactar si cambian el costo de la oferta, la tasa de rescate o el valor de un cliente, en lugar de un umbral fijo.
-- **Una entrega nueva sin trabajo manual:** el flujo la valida, la carga, puntúa a los activos y sigue a los de cortes anteriores; si el archivo cambia de forma o se daña, la rechaza sin tocar lo anterior.
-- **Para un tablero:** las tablas en estrella y el diseño en HTML dicen cómo armar las cinco páginas en Power BI Desktop.
-
-Lo que no sirve: decir quién se dio de baja de verdad (la baja es un silencio definido, no un dato), medir el efecto de una oferta (no hay un experimento de retención), poner un costo real a una oferta o a un cliente (los datos no lo traen), predecir a los clientes sin número ni a los que llevan más de 90 días sin comprar, ni reemplazar una evaluación con datos de otra tienda: es un archivo de una sola tienda, de 2009 a 2011.
 
 ## Cómo correrlo de punta a punta
 

@@ -1,7 +1,9 @@
 """The documentation is checked like code (AC25, AC40; RF24, RF29; RNF09, RNF14; plan, sections 25 and 26).
 
-U30: the README has the headings of plan section 25 in their order and its results block is the sealed summary that ``docs-sync`` copies,
-never a block written by hand; the README says the unfavourable verdicts («no supera») in «El problema», «La solución» and «Los resultados»;
+U30: the README has the headings of the portfolio's numbered outline (ESTRUCTURA-PROYECTOS.md, after plan section 25) in their order and its
+results block, in an appendix, is the sealed summary that ``docs-sync`` copies, never a block written by hand; the README says the
+unfavourable verdicts («no supera») in «1. Resumen ejecutivo» and in «5.1 Evaluación frente a criterios de éxito», and has no section
+about how AI built the project;
 the model card has the contents the plan lists, every verdict as the summary writes it, the memory counters and the suite's limit. These
 tests read the versioned Markdown and the versioned reports (``reports/`` holds the outputs of U29) and run nothing, except the ``docs-sync``
 tests, which work on a copy of the configuration in a temporary folder.
@@ -27,9 +29,21 @@ import pytest
 from churnrisk.reporting import RESULTS_END, RESULTS_START
 
 README_TITLE = "# Clientes que están por irse, antes de que se vayan"
-README_HEADINGS = [   # plan, section 25, in this order (AC40)
-    "El problema", "La solución", "Los resultados", "En qué consiste", "Los datos", "Los algoritmos", "El producto", "La documentación",
-    "Con IA, de punta a punta", "Para qué sirve", "Cómo correrlo de punta a punta", "Paso a paso", "Fuente y licencia",
+README_HEADINGS = [   # the numbered outline of ESTRUCTURA-PROYECTOS.md, then the appendices, in this order (AC40)
+    "1. Resumen ejecutivo", "2. Datasets y preparación", "3. Arquitectura y metodología", "4. Producto final", "5. Conclusión",
+    "Resultados completos de la corrida", "Revisiones y evaluación", "Cómo correrlo de punta a punta", "Paso a paso", "Fuente y licencia",
+]
+README_SUBSECTIONS = [
+    "1.1 Problema de negocio y solución", "1.2 Criterios de éxito e impacto",
+    "2.1 Fuentes, alcance y granularidad", "2.2 Saneamiento y reglas de calidad",
+    "3.1 Fuente e ingesta", "3.2 Orquestación y transformación", "3.3 Almacenamiento y modelado de datos",
+    "3.4 Experimentación y Machine Learning", "3.5 Consumo y gobernanza",
+    "4.1 Entregables operativos", "4.2 Lectura de resultados actuales",
+    "5.1 Evaluación frente a criterios de éxito", "5.2 Limitaciones metodológicas", "5.3 Trabajo futuro",
+]
+README_ML_SUBSECTIONS = [
+    "3.4.1 Ingeniería de características y línea base (baseline)", "3.4.2 Decisiones de modelado y ablación (ADR)",
+    "3.4.3 Protocolo de validación (backtesting / cross-validation)",
 ]
 MODEL_CARD_HEADINGS = [   # what plan section 25 lists for the model card, in this order
     "Uso previsto y no previsto", "Datos", "La definición de baja y su ruido", "La población y los invitados", "Cortes y estacionalidad",
@@ -63,21 +77,25 @@ def section(text: str, title: str) -> str:
 def test_readme_headings_in_order_and_results_block_matches_summary(project_root: Path, readme: str, summary: dict) -> None:
     assert readme.startswith(README_TITLE + "\n")
     assert re.findall(r"^## (.+)$", readme, flags=re.MULTILINE) == README_HEADINGS   # the block's own headings sit one level down
+    assert re.findall(r"^### (\d.+)$", readme, flags=re.MULTILINE) == README_SUBSECTIONS
+    assert re.findall(r"^#### (\d.+)$", readme, flags=re.MULTILINE) == README_ML_SUBSECTIONS
+    assert "Con IA, de punta a punta" not in readme and "agente" not in readme.lower()
     assert readme.count(RESULTS_START) == 1 and readme.count(RESULTS_END) == 1
     from churnrisk.docs_sync import readme_block   # the copy docs-sync makes
     block = readme.split(RESULTS_START)[1].split(RESULTS_END)[0].strip("\n")
     written = (project_root / "reports" / "evaluation_summary.md").read_text(encoding="utf-8")
     assert block == readme_block(written).strip("\n")   # what docs-sync copies, byte for byte
     assert re.sub(r"^#(#+ )", r"\1", block, flags=re.MULTILINE) == written.strip("\n")   # the summary itself, only its headings one level down
-    assert readme.index(RESULTS_START) > readme.index("\n## Los resultados\n") and readme.index(RESULTS_END) < readme.index("\n## En qué consiste\n")
-    # AC25: the sealed summary is unfavourable, and the README says «no supera» outside the block too, in the three sections that tell it
+    appendix = section(readme, "Resultados completos de la corrida")
+    assert RESULTS_START in appendix and RESULTS_END in appendix   # the block sits in its appendix, linked from 5.1
+    # AC25: the sealed summary is unfavourable, and the README says «no supera» outside the block too, in the two sections that tell it
     assert summary["evaluation_status"] == "sealed" and summary["post_seal"] is None
     assert [c["criterion_id"] for c in summary["criteria"] if c["passed"] is False] == FAILED
     assert [c["criterion_id"] for c in summary["criteria"] if c["passed"] is True] == PASSED
     for criterion in summary["criteria"]:
         assert criterion["verdict_es"] in block, criterion["criterion_id"]
-    reading = readme.split(RESULTS_END)[1].split("\n## En qué consiste\n")[0]
-    for title, text in (("El problema", section(readme, "El problema")), ("La solución", section(readme, "La solución")), ("Los resultados", reading)):
+    reading = readme.split("\n### 5.1 Evaluación frente a criterios de éxito\n", 1)[1].split("\n### 5.2 ")[0]
+    for title, text in (("1. Resumen ejecutivo", section(readme, "1. Resumen ejecutivo")), ("5.1", reading)):
         assert "no supera" in text, title
     for criterion in FAILED + PASSED:
         assert re.search(rf"\b{criterion}\b", reading), criterion
