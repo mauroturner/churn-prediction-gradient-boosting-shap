@@ -343,3 +343,5 @@ Every operation, with its failures and how to recover, is in the [runbook](docs/
 Data source: Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Changes: the copies of the overlap between the sheets removed, lines without a customer and service codes set aside, cancellations discounted from the purchases they cancel, the history split into monthly deliveries, and cuts, labels, variables, risks, reasons, metrics and criteria calculated.
 
 The raw data is not versioned: the flow downloads the file and checks its hash. No published output carries a customer number.
+
+The code is under the [MIT licence](LICENSE); the source data keeps the licence given above.

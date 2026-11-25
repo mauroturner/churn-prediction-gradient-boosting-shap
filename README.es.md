@@ -297,3 +297,5 @@ El proyecto se construyó en 31 unidades de trabajo más las tandas de correccio
 Fuente de datos: Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D, licencia CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Modificaciones: se quitaron las copias del solapamiento entre las dos hojas, se apartaron las líneas sin cliente y los códigos de servicio, se descontaron las anulaciones de las compras que anulan, se repartió la historia en entregas mensuales y se calcularon cortes, etiquetas, variables, riesgos, motivos, métricas y criterios.
 
 Los datos crudos no se versionan: el flujo descarga el archivo y verifica su huella. Ninguna salida publicada lleva el número de cliente: vive solo en SQLite, en `data/interim/` y en `outputs/private/`, que no se versionan.
+
+El código está bajo la [licencia MIT](LICENSE); los datos de origen conservan la licencia indicada arriba.
