@@ -65,7 +65,7 @@ Verificar la fuente, la licencia, el esquema, la definición de "se fue" sin con
 - **Netting**: el archivo `netting.py` del proyecto 02 se cargó por ruta con `importlib` en modo de solo lectura, sin importar el paquete ni modificar el repositorio. Con ese código se calcularon las compras netas (anulaciones emparejadas LIFO) y los días de compra. [Verificado]
 - **Cortes y regla de prueba**: los cortes de prueba se fijaron por calendario antes de calcular cualquier tasa: 2011-08-01 y 2011-09-01. Los tiempos entre compras usan solo compras anteriores a 2011-08-01. La tabla de churn por N y M usa solo los cortes de entrenamiento. La primera mirada usa el primer corte de validación. Los perfiles de calidad (sección de datos) son descriptivos del archivo completo: no son tasas ni modelos sobre un corte, pero **un conteo de clientes con compra neta en todo el archivo sí usó el periodo de prueba** (`out/s06_extra_profile.out`); se declara aquí y no interviene en ninguna decisión.
 - **Convención de fechas**: un corte en la fecha `c` usa solo compras y anulaciones con fecha anterior a `c`. La etiqueta usa la ventana `[c, c+N-1]` con anulaciones conocidas hasta `c+N-1`. [Inferido: convención de este documento]
-- **Scripts**: `C:\Users\user\AppData\Local\Temp\tmp.4G0E3y6lZg\scripts\` (`s01` a `s07`, `common.py`, y dos diagnósticos `s04b`, `s04c` y `s05b`, `s05c`). Las salidas están en `...\tmp.4G0E3y6lZg\out\`.
+- **Scripts**: `<temp>\scripts\` (`s01` a `s07`, `common.py`, y dos diagnósticos `s04b`, `s04c` y `s05b`, `s05c`). Las salidas están en `...\tmp.4G0E3y6lZg\out\`.
 - **Límites**: la primera mirada es una sola configuración y un solo corte de validación con 1.677 clientes. El error de muestreo de un AUC con ese tamaño es de unos ±0,02 (ver "Primera mirada del modelo"). Las cifras de costo son supuestos.
 
 ---
@@ -521,7 +521,7 @@ Texto de `src/i18n/projects/churn-risk.ts` (es y en), archivo de `marca-personal
 
 Todas están fuera del repositorio:
 
-- Copias de solo lectura de los archivos de UCI: `C:\Users\user\AppData\Local\Temp\tmp.4G0E3y6lZg\raw\` (`online_retail_II.xlsx`, `online_retail_ii.zip`).
+- Copias de solo lectura de los archivos de UCI: `<temp>\raw\` (`online_retail_II.xlsx`, `online_retail_ii.zip`).
 - Datos de trabajo: `...\tmp.4G0E3y6lZg\out\raw.parquet`, `base.parquet`, `train_rows.pkl`, `val_rows.pkl`, `shap_val.npy`, `s03_purchase_days_pre_test.csv`, `s03_churn_by_N_M.csv`.
 - Scripts: `...\tmp.4G0E3y6lZg\scripts\` (`common.py`, `s01_load.py`, `s02_profile.py`, `s03_churn_window.py`, `s04_first_look.py`, `s05_shap.py`, `s06_extra_profile.py`, `s07_bootstrap.py`; diagnósticos `s04b`, `s04c`, `s05b`, `s05c`).
 - Salidas de texto: `...\tmp.4G0E3y6lZg\out\s02_profile.out`, `s03_churn_window.out`, `s04_first_look.out`, `s05_shap.out`, `s06_extra_profile.out`, `s07_bootstrap.out`.

@@ -1,297 +1,345 @@
-# Gradient boosting y SHAP para la predicción de la baja de clientes
+# Gradient boosting and SHAP for customer churn prediction
 
-| | |
+**English** · [Español](README.es.md)
+
+A monthly list of customers at risk of leaving, with their three reasons.
+
+![Retention console](docs/screenshots/dashboard.png)
+
+|  |  |
 | --- | --- |
-| **Propuesta de valor** | Una lista mensual de clientes en riesgo de irse, con la probabilidad de cada uno, sus tres motivos y una marca en los que conviene contactar según costos supuestos, medida contra las reglas que usaría un gerente |
-| **Stack tecnológico** | Python 3.11, pandas, NumPy, SciPy, scikit-learn, SHAP, openpyxl, SQLite y SQL, Parquet (PyArrow), Matplotlib, pytest, Apache Airflow sobre Docker Compose, y el diseño de un tablero de Power BI en HTML |
-| **Técnicas** | Clasificación binaria con gradient boosting, calibración isotónica, motivos por cliente con SHAP, RFM, BG/NBD, umbral por beneficio neto con costos supuestos, partición en el tiempo con prueba sellada, remuestreo pareado por clientes |
-| **Para auditar** | [Ficha del modelo](docs/model-card.md) · [Evaluación independiente](docs/evaluation.md) · [Última corrida: validación](reports/validation/latest.md) · [Última corrida: resultados](reports/evaluation_summary.md) |
+| **Result** | 2 of 9 success criteria met |
+| **Tech stack** | Python, pandas, scikit-learn, SHAP, SciPy, SQLite, Parquet, Apache Airflow, Docker |
+| **Techniques** | Binary classification, Gradient boosting, SHAP, BG/NBD, RFM, Isotonic calibration, Cost-based threshold |
+| **To audit** (in Spanish) | [Model card](docs/model-card.md) · [Independent evaluation](docs/evaluation.md) · [Latest run: validation](reports/validation/latest.md) · [Latest run: results](reports/evaluation_summary.md) · [Decision log](docs/decisions.md) |
 
-Este README sigue la estructura común de los proyectos de datos del portafolio, descrita en `ESTRUCTURA-PROYECTOS.md` en la raíz del portafolio.
+## 1. Executive summary
 
-## 1. Resumen ejecutivo
+### 1.1 Business problem and solution
 
-### 1.1 Problema de negocio y solución
+**Business problem and target audience.** Built for the retention and CRM teams of an online shop, with management watching what each offer costs. The shop sees who bought and when, but nobody marks who stopped buying: by the time it shows, the customer is gone. The project takes the public invoices of an online retailer, mostly from the UK (1,067,371 lines and 5,942 customers from 41 countries), and answers each month whom it pays to contact, and why.
 
-Un flujo mensual que carga las facturas de una tienda en línea, las valida, descuenta las anulaciones con lo que se sabe en cada fecha y, en cada fecha de corte, da a cada cliente activo la probabilidad calibrada de no volver a comprar en los 90 días siguientes, con sus tres motivos principales, y la lista de los que conviene contactar según costos supuestos y declarados. Y mide, contra criterios fijados antes de escribir el código, si el modelo ordena a los clientes mejor que las reglas que usaría un gerente: no las supera.
+**Proposed solution.** A monthly flow that, at each cut-off date, gives each active customer three things:
 
-**El problema.**
+- **Risk of leaving:** the probability of not buying again in the next 90 days, calibrated in validation.
+- **Three reasons:** the variables that push their risk the most according to SHAP, which add up exactly to their risk on the model’s scale.
+- **Contact list:** they go on it if their risk passes the threshold of 0.55, which comes from assumed and declared costs; each month who came back and who left is followed.
 
-Una tienda que vende en línea ve quién compró y cuándo, pero ningún sistema marca quién dejó de comprar: cuando alguien lo nota, el cliente ya se fue. No hay un contrato que se cancele ni un aviso de baja, solo un silencio que se confunde con una pausa normal. Retención y marketing no saben a quién llamar ni cuándo; atención al cliente no sabe a quién cuidar; dirección no sabe cuánto rinde una oferta de retención ni si un modelo agrega algo a una regla que cualquiera puede escribir con las facturas.
+### 1.2 Success criteria and impact
 
-El dato de este proyecto es el archivo público «Online Retail II» de UCI (CC BY 4.0): las facturas de un minorista en línea, sobre todo del Reino Unido, del 2009-12-01 al 2011-12-09, 1.067.371 filas en dos hojas. El archivo no dice quién se fue: la baja hay que definirla, y la definición es ruidosa, porque parte de los clientes que callan 90 días vuelve a comprar después. En los siete cortes de entrenamiento, el 43,2 % de los clientes activos no volvió a comprar en los 90 días siguientes, entre el 31,2 % y el 57,9 % según el mes.
+**Criteria set before measuring.** Before the code was written, ten criteria were fixed, nine with a threshold: that the model beat RFM and validation’s strongest rule on AUC, also beyond the noise; that it capture more leavers in the 10 % at highest risk; that it leave more net benefit than that rule at its own threshold and more than contacting everyone or no one; that it be calibrated on the test (a calibration error of 0.03 or less and a bias of 0.02 or less); that its Brier be lower than that rule’s; and that it leave at least that rule’s benefit at every cost break-even point, from 0.10 to 0.90. What was expected was written down too: that it would not meet the two beyond the noise nor the calibration one.
 
-Lo que el proyecto encontró es la respuesta honesta a la pregunta de dirección: **el modelo no supera a las reglas simples.** En la prueba, una regla de frecuencia (cuántos días compró el cliente en el último año) ordena a los clientes mejor que el modelo, y BG/NBD, la base más fuerte elegida en la validación, deja más beneficio con los mismos costos supuestos.
+**Impact and main result.** The model does not beat the simple rules: its AUC on the test is 0.745, against 0.746 for RFM, 0.749 for BG/NBD and 0.752 for frequency. It meets 2 of the 9 criteria with a threshold: acting with it pays better than contacting everyone or no one, with 209.7 units of net benefit per 1,000 customers against −1,559.1 and 0, and its Brier is lower than BG/NBD’s. What it adds is each customer’s probability and reasons, not a better order.
 
-**La solución.**
+![Retention console: the product](docs/screenshots/demo.png)
 
-Un flujo mensual que toma cada entrega de facturas, la valida con 39 reglas (18 bloquean la entrega, 13 advierten y 8 informan), la carga en SQLite de forma todo o nada, descuenta cada anulación de la compra que anula con lo que se sabe en la fecha, arma en cada corte la población de clientes activos y su etiqueta, entrena una sola vez un clasificador de árboles en el lanzamiento y lo deja congelado, puntúa cada mes a los clientes activos con sus tres motivos (SHAP), elige a quién contactar con un umbral por beneficio neto y sigue mes a mes quién volvió y quién no. Escribe las tablas de un tablero de Power BI en modelo estrella, el diseño del tablero en HTML y cinco archivos pequeños para el sitio, sin ningún número de cliente en lo publicado.
+## 2. Datasets and preparation
 
-El resultado central no es el modelo sino una medición: el clasificador se compara con la recencia, RFM, la frecuencia y BG/NBD, con diez criterios fijados antes de construir. **El modelo no supera a RFM (C01, C02) ni a la base más fuerte (C03, C04, C05), no queda calibrado en la prueba (C07) y no deja al menos el beneficio de la base más fuerte en todos los puntos de equilibrio de costo (C09); cumple C06 (conviene actuar con él antes que contactar a todos o a nadie) y C08 (su Brier es menor que el de la base más fuerte).** Lo que el proyecto deja, aunque el modelo no gane:
+### 2.1 Sources, scope and granularity
 
-- **La etiqueta y su ruido**, medidos y escritos: la baja como ninguna compra neta en 90 días, la tasa de cada corte, qué pasa con 60 y 120 días, y cuántos silencios vuelven.
-- **El flujo y el sello**: seis entregas mensuales sobre un archivo histórico, validadas y cargadas todo o nada, y una prueba evaluada una sola vez bajo un sello que no se reescribe.
-- **El tablero**: las 26 tablas en estrella y el diseño de cinco páginas, con el panel de los costos supuestos.
-- **Los motivos de cada cliente**: SHAP sobre el log-odds del modelo, comprobado fila por fila.
-- **La curva de costo**: cuánto cambia la decisión de contactar si cambian el costo de la oferta, la tasa de rescate o el valor de un cliente.
-- **La evidencia de que una regla de frecuencia o RFM es el punto de partida honesto**: con estos datos, cualquiera de las dos ordena a los clientes como el modelo, y es más fácil de explicar.
+- Online Retail II. Daqing Chen (2012), on the UCI Machine Learning Repository, doi.org/10.24432/C5CG6D. https://doi.org/10.24432/C5CG6D (CC BY 4.0)
 
-**Para qué sirve.**
-
-- **Un equipo de retención** obtiene cada mes la lista de clientes activos con su riesgo calibrado, sus tres motivos y una marca en los que conviene contactar según los costos que declare, y el seguimiento de cuántos volvieron.
-- **Quien decida con el modelo sabe cuánto confiar en él:** no ordena mejor que una regla de frecuencia, RFM o BG/NBD, y su probabilidad sobreestima las bajas cuando la tasa cambia. Si se quiere algo simple y auditable, la frecuencia de 365 días o RFM alcanzan; el flujo, el seguimiento, la curva de costo y el tablero sirven igual con ellas.
-- **Dirección** ve cuánto cambia la decisión de contactar si cambian el costo de la oferta, la tasa de rescate o el valor de un cliente, en lugar de un umbral fijo.
-- **Una entrega nueva sin trabajo manual:** el flujo la valida, la carga, puntúa a los activos y sigue a los de cortes anteriores; si el archivo cambia de forma o se daña, la rechaza sin tocar lo anterior.
-- **Para un tablero:** las tablas en estrella y el diseño en HTML dicen cómo armar las cinco páginas en Power BI Desktop.
-
-### 1.2 Criterios de éxito e impacto
-
-Los criterios se fijaron y se confirmaron en Git antes del primer código (`docs/requirements.md`, sección 8.1; `docs/decisions.md`, D18): diez criterios, C01 a C10, nueve con umbral y uno informativo, junto con lo que se esperaba: que el modelo no cumpliera C02, C03 ni C07. **El modelo no supera a las reglas simples: cumple 2 de los 9 criterios con umbral, C06 (conviene actuar con él antes que contactar a todos o a nadie) y C08 (su Brier es menor que el de la base más fuerte).** En la prueba, su AUC es 0,745; el de RFM 0,746, el de BG/NBD 0,749 y el de la frecuencia de 365 días 0,752. Cada criterio contra su resultado, en [5.1](#51-evaluación-frente-a-criterios-de-éxito); la tabla completa, en [Resultados completos de la corrida](#resultados-completos-de-la-corrida).
-
-## 2. Datasets y preparación
-
-### 2.1 Fuentes, alcance y granularidad
-
-| | |
+| Attribute | Specification |
 | --- | --- |
-| Fuente | UCI Machine Learning Repository, «Online Retail II», de Daqing Chen (https://doi.org/10.24432/C5CG6D) |
-| Archivo | `online_retail_ii.zip`, 45.622.418 bytes; adentro, `online_retail_II.xlsx`, con dos hojas y 8 columnas |
-| Período | Facturas del 2009-12-01 al 2011-12-09 |
-| Filas | 1.067.371; sin las 22.523 copias exactas del solapamiento entre las dos hojas quedan 1.044.848 líneas (11.812 repeticiones internas se conservan y se marcan) |
-| Roles | 788.187 compras, 17.641 anulaciones y 239.020 líneas apartadas por la primera regla que las aparta (sin cliente, precio cero, códigos de servicio, vales, facturas «A») |
-| Invitados | 235.287 líneas sin número de cliente (22,5 % de las líneas y 15,1 % del importe): no se pueden seguir en el tiempo y quedan fuera |
-| Clientes | 5.942 con al menos una compra, de 41 países (91 % del Reino Unido) |
-| Etiqueta | La baja no está en los datos: se define como ninguna compra neta en los 90 días desde el corte, entre los activos de los 90 días anteriores |
-| Ruido | En el entrenamiento, el 31,7 % de los 6.611 silencios de 90 días vuelve a comprar en los 90 siguientes; la investigación midió 39 % sobre el archivo completo |
+| Original volume (M × N) | 1,067,371 rows × 8 columns, in a two-sheet Excel workbook inside a 45,622,418-byte zip |
+| Project scope | 1,044,848 lines without the 22,523 copies between the two sheets; 5,942 customers with at least one purchase, from 41 countries |
+| Period covered | Invoices from December 2009 to 9 December 2011 |
+| Granularity and integrity | One row per invoice line; the model’s unit is the customer at a cut-off date, the 1st of each month: 19 cuts, from June 2010 to December 2011 |
+| Label | It is not in the data: a customer who bought in the 90 days before the cut has left if they do not buy in the next 90 |
 
-La unidad del modelo es el cliente con número en una fecha de corte, el día 1 de un mes. Cada columna del libro, cada variable y cada columna de las tablas exportadas, con su unidad, están en [docs/data-dictionary.md](docs/data-dictionary.md). La atribución y la licencia están al final, en [Fuente y licencia](#fuente-y-licencia).
+<details>
+<summary>Fields available in the dataset (8)</summary>
 
-### 2.2 Saneamiento y reglas de calidad
+| Column | Content | Unit | Data type |
+| --- | --- | --- | --- |
+| `Invoice` | Invoice number; those starting with “C” are cancellations | — | Text |
+| `StockCode` | Product or service code | — | Text |
+| `Description` | Product name, free text | — | Text |
+| `Quantity` | Units of the line, negative in a cancellation | units | Integer |
+| `InvoiceDate` | Invoice date and time, no zone | date and time | Date and time (text) |
+| `Price` | Unit price | £ per unit | Decimal |
+| `Customer ID` | Customer number; empty in a guest purchase | — | Integer |
+| `Country` | Customer’s country on the line | — | Text |
 
-Cada entrega pasa por 39 reglas antes de cargarse: 18 bloquean la entrega, 13 advierten (corrigen, apartan o marcan) y 8 informan. Si una bloqueante falla, la entrega se rechaza sin tocar lo ya cargado. Lo que se aparta, lo que se descuenta y lo que se marca está en las filas «Filas», «Roles» e «Invitados» de 2.1: las copias exactas del solapamiento entre las hojas se quitan, las repeticiones internas se conservan y se marcan, las líneas sin cliente, de precio cero, de códigos de servicio, de vales y de facturas «A» se apartan, y cada anulación se descuenta de la compra que anula con lo que se sabe en la fecha. Cada regla con su recuento real, en [reports/validation/latest.md](reports/validation/latest.md); qué hacer ante cada rechazo, en [docs/runbook.md](docs/runbook.md).
+</details>
 
-## 3. Arquitectura y metodología
+The flow reads all 8 columns. Description is stored but does not reach the model; Customer ID never reaches a published file; Country enters only the F2 feature set, which is not the one chosen.
 
-Doce tareas que corren siempre en este orden, las mismas desde la línea de comandos (`python -m churnrisk run`) y desde el DAG de Apache Airflow (`churnrisk_monthly`):
+### 2.2 Cleaning and quality rules
 
-### 3.1 Fuente e ingesta
+- **Copies between the two sheets.** The 22,523 identical rows where the sheets overlap are removed on reading the file; the 11,812 lines identical to an earlier one on the same sheet are kept and flagged.
+- **Guests set aside.** The 235,287 lines with no customer number, 22.5 % of the lines and 15.1 % of the value, are set aside: they cannot be followed in time.
+- **Cancellations netted, with what is known on the date.** The 17,641 cancellation lines are taken off the purchase they cancel, by customer and product, with what is known on each date; the 1,706 with no purchase to cancel are discarded and counted.
+- **Lines that are not sales.** Lines with a zero or negative price (70 rows), service codes such as postage, fees or samples (3,663), gift vouchers and bad-debt adjustments are set aside.
+- **Kept with a flag.** Very large quantities on one line (43 rows), customers with more than one country, who take the one of their last line before the cut (1,646), and the unspecified country, which goes to “Others” (756), are kept and flagged.
+- **Empty is not zero.** A cut whose window has not closed has no churn rate, and a cell of fewer than 10 customers is published hidden, its values null.
 
-Sobre la integridad de la descarga: el zip llega por HTTPS desde `archive.ics.uci.edu`; cada salto debe ir a un host de la lista, con a lo sumo tres redirecciones, 64 MiB y 900 s, y el archivo se acepta solo si su SHA-256 es el fijado en la configuración (el mismo que fijó el proyecto 02). El libro de Excel de adentro se trata como no confiable: miembro exacto, sin rutas, con tope descomprimido y su propia huella.
+## 3. Architecture and methodology
 
-La segunda tarea hace de sistema de origen: como el archivo es histórico, el flujo lo reparte en un lanzamiento con las facturas hasta el 2011-07-31, cuatro entregas mensuales (2011-08 a 2011-11) y un cierre con los 9 días de 2011-12. Una línea va en la entrega de la fecha de su factura. Con ninguna entrega pendiente, la corrida termina como `no_delivery`. La tercera tarea corta el flujo, sin tocar nada, si la entrega no cumple el contrato.
+The system runs as a flow of twelve tasks, always in the same order and with the same functions from the command line (python -m churnrisk run) and from Apache Airflow’s churnrisk_monthly DAG in Docker: fetch_source → deliver → validate → load → build_cuts → fit_model → score → track → evaluate → export → render_dashboard → report.
 
-### 3.2 Orquestación y transformación
+### 3.1 Source and ingestion
+
+- **Hardened download (fetch_source).** The zip arrives over HTTPS from archive.ics.uci.edu; every hop must go to a listed host, with at most 3 redirects, 64 MiB and 900 s, and the file is accepted only if its SHA-256 fingerprint is the one pinned in the configuration. In Airflow, the task has 3 retries, 10 minutes apart.
+- **A workbook not treated as trusted.** The zip must hold exactly the expected workbook, with no paths, under an uncompressed cap of 100 MiB and with its own fingerprint; the workbook, its two sheets with the exact 8 columns in order, and each value, its type. If not, the delivery is rejected without touching anything.
+- **Monthly deliveries on a historical file (deliver).** The second task plays the source system: it splits the file into a launch with the invoices to 31 July 2011, four monthly deliveries, from August to November 2011, and a close with the days of December 2011. With no delivery pending, the run ends there.
+- **Quality gate (validate).** It applies 39 rules in three levels: 18 blocking ones reject the delivery without touching what is already loaded, 13 fix, set aside or flag and warn, and 8 only report.
+
+### 3.2 Orchestration and transformation
+
+- **Flow control (Apache Airflow).** The churnrisk_monthly DAG runs once a month, with one run and one task active at a time, and with each task’s retries and time limit. Each task also takes a lock on the data folder, and a second process is turned away without writing anything.
+- **Loading and transformation (load, build_cuts).** load writes the delivery to SQLite in a single transaction, all or nothing. build_cuts takes each cancellation off the purchase it cancels with what is known on the date and builds, at each cut, the population of active customers, their 16 variables from what came before the cut and their label, which enters only once its 90-day window has closed.
+- **Frozen model and scoring (fit_model, score, track).** fit_model trains once, at the launch, and leaves the model frozen: its file is loaded only if its SHA-256 matches the recorded one. score scores each cut’s active customers once, never changing a score already issued, and track follows each month who came back and who left.
+- **What was tested in Docker.** The DAG’s end-to-end test in Docker, in quick mode on synthetic data, passed 2 of 2 in 147.6 s during the independent evaluation. The real run was made from the command line; Airflow’s scheduled run on the real file has not been run.
 
 ```mermaid
 flowchart LR
-  A[fetch_source<br/>zip con huella fijada] --> B[deliver<br/>la siguiente entrega]
-  B --> C[validate<br/>39 reglas]
-  C --> D[load<br/>SQLite, todo o nada]
-  D --> E[build_cuts<br/>población, etiqueta y variables]
-  E --> F[fit_model<br/>entrena y congela en el lanzamiento]
-  F --> G[score<br/>riesgo y motivos de cada activo]
-  G --> H[track<br/>quién volvió y quién no]
-  H --> I[evaluate<br/>V2 y, una vez, la prueba]
-  I --> J[export<br/>26 Parquet y 5 JSON]
-  J --> K[render_dashboard<br/>HTML]
-  K --> L[report<br/>cierra la corrida]
+  subgraph source_lane["Source"]
+    n_zip["UCI zip with a pinned fingerprint"]
+  end
+  subgraph orchestration_lane["Orchestration"]
+    n_airflow["Airflow DAG"]
+  end
+  subgraph task_lane["Tasks"]
+    n_fetch_source["fetch_source"]
+    n_deliver["deliver"]
+    n_validate["validate"]
+    n_load["load"]
+    n_build_cuts["build_cuts"]
+    n_fit_model["fit_model"]
+    n_score["score"]
+    n_track["track"]
+    n_evaluate["evaluate"]
+    n_export["export"]
+    n_render_dashboard["render_dashboard"]
+    n_report["report"]
+  end
+  subgraph storage_lane["Storage"]
+    n_sqlite["SQLite, all or nothing"]
+    n_artefact["Frozen model with its fingerprint"]
+    n_parquet["26 Parquet tables"]
+    n_private["Private per-customer table"]
+  end
+  subgraph output_lane["Output"]
+    n_seal["The test’s seal"]
+    n_site["5 JSON files for the site"]
+    n_html["Dashboard design in HTML"]
+    n_summary["Summary and verdicts"]
+  end
+  n_zip --> n_fetch_source
+  n_airflow --> n_fetch_source
+  n_fetch_source --> n_deliver
+  n_deliver --> n_validate
+  n_validate --> n_load
+  n_load --> n_build_cuts
+  n_build_cuts --> n_fit_model
+  n_fit_model --> n_score
+  n_score --> n_track
+  n_track --> n_evaluate
+  n_evaluate --> n_export
+  n_export --> n_render_dashboard
+  n_render_dashboard --> n_report
+  n_load --> n_sqlite
+  n_fit_model --> n_artefact
+  n_evaluate --> n_seal
+  n_export --> n_parquet
+  n_export --> n_private
+  n_export --> n_site
+  n_render_dashboard --> n_html
+  n_report --> n_summary
 ```
 
-Un corte es el día 1 de un mes. Su población son los clientes con al menos una compra neta en los 90 días anteriores (M = 90), y un cliente de la población se fue si no tiene ninguna compra neta en los 90 días desde el corte (N = 90); la etiqueta entra al almacén recién cuando esa ventana cerró. Las variables de un corte salen solo de lo anterior a él. El modelo se entrena una sola vez, en el lanzamiento, y queda congelado: su artefacto se carga solo si su SHA-256 coincide con el registrado, y cada corrida puntúa una vez a los activos de su corte, sin cambiar nunca un puntaje emitido. El sello guarda la configuración del lanzamiento y el primer resultado de la prueba; una evaluación con otra configuración se informa aparte, como posterior al sello. Un solo proceso escribe la carpeta de datos a la vez: cada tarea toma el bloqueo `data/interim/pipeline.lock`, y un segundo proceso se rechaza sin escribir nada.
+### 3.3 Storage and data modelling
 
-- **Orquestación:** la línea de comandos y el DAG de Airflow sobre Docker Compose, con las mismas tareas y las mismas funciones. La función de puntuación queda lista para envolverla en un servicio; no hay una API.
+- **Transactional and audit database (SQLite).** It holds each delivery’s lines, the cuts with their variables and labels, the scores with their reasons, the follow-up, the runs and the result of each validation rule. Beside it sit the frozen model and the test’s seal, which is never rewritten.
+- **Star-schema analytical layer (Parquet).** The export task writes 26 Parquet tables with a manifest of fingerprints, with unique keys and referential integrity checked before writing. The fact per customer and cut, the only one with the customer number, goes to a private folder that is not versioned.
 
-### 3.3 Almacenamiento y modelado de datos
+<details>
+<summary>Data model (27 tables)</summary>
 
-El almacén es SQLite: cada entrega se carga de forma todo o nada, y ahí viven las líneas, los cortes con sus variables y etiquetas, los puntajes con sus motivos, el seguimiento, las corridas y el resultado de cada regla; el número de cliente vive solo ahí, en `data/interim/` y en `outputs/private/`, que no se versionan. La capa analítica es el modelo estrella que escribe la tarea `export`, descrito en [4.1](#41-entregables-operativos) («Tablas para Power BI»); cada tabla con sus columnas y sus relaciones, en [docs/data-dictionary.md](docs/data-dictionary.md).
+| Table | Kind | Columns | Joins |
+| --- | --- | --- | --- |
+| `Calendar` | dimension | 7 | — |
+| `Cuts` | dimension | 8 | — |
+| `Country` | dimension | 4 | — |
+| `Risk band` | dimension | 4 | — |
+| `Reason` | dimension | 4 | — |
+| `Method` | dimension | 3 | — |
+| `Frozen model` | dimension | 13 | — |
+| `Run` | dimension | 11 | — |
+| `Calculation date` | dimension | 3 | — |
+| `Customers by cut and band` | fact | 8 | Cuts (`cut_key`); Risk band (`band_key`) |
+| `Customers by cut and country` | fact | 6 | Cuts (`cut_key`); Country (`country_key`) |
+| `Reasons by cut` | fact | 5 | Cuts (`cut_key`); Reason (`reason_key`) |
+| `Follow-up` | fact | 11 | Cuts (`cut_key`); Calculation date (`as_of_key`) |
+| `Metrics by method` | fact | 17 | Method (`method_key`) |
+| `Criteria` | fact | 12 | — |
+| `Gain curve` | fact | 7 | Method (`method_key`) |
+| `ROC curve` | fact | 6 | Method (`method_key`) |
+| `Calibration` | fact | 7 | Method (`method_key`) |
+| `Cost curve` | fact | 7 | Method (`method_key`) |
+| `Sensitivities` | fact | 11 | — |
+| `Churn definition` | fact | 4 | — |
+| `Silences that come back` | fact | 3 | — |
+| `Feature importance` | fact | 4 | Reason (`reason_key`) |
+| `Grid candidates` | fact | 6 | — |
+| `Leak demonstration` | fact | 4 | — |
+| `Validation rules` | fact | 10 | Run (`run_key`) |
+| `Risk list, private` | fact | 19 | Cuts (`cut_key`); Country (`country_key`); Risk band (`band_key`) |
 
-### 3.4 Experimentación y Machine Learning
+</details>
 
-Los criterios C01-C10, los hiperparámetros, las semillas, los costos supuestos y las ventanas están fijados antes de medir en `config/pipeline.toml` y en `docs/requirements.md`; cada decisión, con sus opciones y su motivo, está en el [registro de decisiones](docs/decisions.md). El sello guarda la configuración del lanzamiento y el primer resultado de la prueba, y no se reescribe.
+### 3.4 Experimentation and machine learning
 
-#### 3.4.1 Ingeniería de características y línea base (baseline)
+- **Rigour and traceability protocol.** The ten success criteria, and what was expected of each, were written and committed to Git before the first line of code, in docs/requirements.md and in decision D18. Hyperparameters, seeds, costs and windows live in config/pipeline.toml, and a SHA-256 fingerprint over the part of the configuration that can change a sealed value detects any change: with another configuration, what is computed is reported apart, as after the seal. Every technical decision is in the decision log, with its options, its reason and its status.
 
-- **Variables de lo anterior al corte.** Dieciséis: recencia, antigüedad, días de compra (todos, en 90 y en 365 días), gasto (total, en 90 y en 365 días), gasto por día de compra, unidades en 90 días, tiempo medio y máximo entre compras, productos distintos y unidades medianas por línea en 365 días, y anulaciones y su importe en 365 días; además el país de la última línea, como indicadores. Tres conjuntos: F0 (recencia y frecuencia de 365 días), F1 (las dieciséis) y F2 (F1 y el país). Una lista permitida, un error propio (`LeakageError`), una prueba de truncamiento y una de perturbación impiden que la etiqueta, el número de cliente o una variable de calendario lleguen a la matriz, y una trampa detiene el lanzamiento si el AUC del modelo elegido llega a 0,95 en V1.
-- **Reglas de comparación.** B0 contactar a todos, B1 la recencia, B2 RFM (quintiles de recencia, frecuencia y gasto de 365 días), B3 las compras esperadas en 90 días según BG/NBD (ajustado con la historia anterior al último corte de entrenamiento: r 0,9091, α 75,83, a 0,1717, b 105,91), B4 los días de compra en 365 días y B5 1 − P(vivo), informativa. B* es la de mayor AUC en la validación entre B2, B3 y B4: BG/NBD.
+#### 3.4.1 Feature engineering and baseline
 
-#### 3.4.2 Decisiones de modelado y ablación (ADR)
+The model reads 16 variables per customer, computed only from what came before the cut: how long ago they bought, their tenure, their purchase days (in total, in 90 and in 365 days), their spend (in total, in 90 and in 365 days) and per purchase day, their units in 90 days, the average and the longest time between purchases, the distinct products and the median units per line in 365 days, and their cancellations and their value in 365 days. An allow list, a dedicated error (LeakageError) and truncation and perturbation tests keep the label, the customer number and the calendar out of the matrix, and a tripwire stops the launch if the chosen model’s AUC reaches 0.95 in V1. To show what a leak sounds like, the project tries on purpose a variable that looks at the label’s window: it takes the second validation’s AUC from 0.762 to 1.000. The baseline is the rules a manager would write, with their parameters from training: contact everyone, recency, RFM, BG/NBD, 365-day frequency and 1 − P(alive), informative only; the strongest in validation, BG/NBD, is the baseline to beat.
 
-- **Clasificador.** `HistGradientBoostingClassifier` de scikit-learn con una grilla fija de ocho configuraciones por conjunto (24 ajustes de 300 iteraciones, sin parada temprana). Se elige el de menor pérdida logarítmica en V1: F1, tasa de aprendizaje 0,05, 15 hojas y 200 filas por hoja. El país no entra en el modelo elegido.
-- **Calibración.** Regresión isotónica ajustada solo con V1 sobre el clasificador congelado; las reglas se calibran igual, para decidir con ellas por costo.
-- **Motivos de cada cliente.** SHAP (`TreeExplainer`) sobre el log-odds del clasificador sin calibrar: la suma de las contribuciones más el valor base reproduce el log-odds de cada fila explicada con un error de a lo sumo 10⁻⁶, o la tarea falla. Se guardan los tres motivos de mayor contribución hacia el riesgo.
-- **Umbral por costo.** El valor de 0,01 a 0,99 que maximiza en V2 el beneficio neto de contactar, `bajas × tasa de rescate × valor − costo de la oferta`, nunca F1: con los costos supuestos, 0,55. Para cada punto de equilibrio de 0,10 a 0,90 se repite la elección para el modelo y B*.
+**Approach: the model alone, the model against a manager’s rules, or rules alone?** (D01)
 
-Ecuaciones, límites y resultados de cada método en la [ficha del modelo](docs/model-card.md). La curva de ganancia sigue a Verbeke y otros (2012, https://doi.org/10.1016/j.ejor.2011.09.031): lo que se evalúa es cuántas bajas capta una lista de contacto de cada tamaño y cuánto deja actuar, no solo el AUC.
+- **Selected alternative:** A classifier against the rules a manager would use (recency, RFM, frequency and BG/NBD), with criteria fixed before building that may not be met and the expected result written before measuring. An AUC with no rule beside it does not say whether the model adds anything, and the research already showed it might add nothing over a one-variable rule: that comparison is the result.
+- **Rejected alternatives:** The model alone, with its AUC: It would repeat the tutorials’ mistake of high AUCs with no cuts in time.
+- **Rejected alternatives:** Rules alone, no model: It would leave out each customer’s reasons, which a rule does not give.
 
-#### 3.4.3 Protocolo de validación (backtesting / cross-validation)
+#### 3.4.2 Modelling decisions and ablation (ADR)
 
-No hay validación cruzada aleatoria: la validación es una partición en el tiempo, con una prueba evaluada una sola vez bajo un sello.
+<details>
+<summary>4 decisions, each with what was rejected</summary>
 
-La partición en el tiempo, por fecha de corte, con purgas de al menos N días entre bloques:
+**Choosing the algorithm** (D13)
 
-| Bloque | Cortes | Filas | Bajas | Para qué |
-| --- | --- | ---: | ---: | --- |
-| Entrenamiento | 2010-06-01 a 2010-12-01 (7) | 15.297 | 43,2 % | Ajustar los modelos, las reglas y BG/NBD |
-| Purga 1 | 2011-01-01 y 2011-02-01 | — | — | Ninguno |
-| V1 | 2011-03-01 y 2011-04-01 | 3.449 | 42,6 % | Elegir y calibrar el modelo y las reglas, y elegir B* |
-| V2 | 2011-05-01 | 1.886 | 40,6 % | Elegir el umbral por costo |
-| Purga 2 | 2011-06-01 y 2011-07-01 | — | — | Ninguno |
-| Prueba | 2011-08-01 y 2011-09-01 | 3.935 | 34,4 % | Evaluar una sola vez, bajo el sello |
-| Censurados | 2011-10-01 a 2011-12-01 (3) | — | — | Se puntúan y se siguen; su ventana termina después de los datos |
+- **Selected alternative:** scikit-learn’s HistGradientBoostingClassifier, with the country one-hot encoded explicitly, a fixed grid of 24 candidates and 300 iterations with no early stopping, seed 0. scikit-learn was already in the portfolio’s stack and with it SHAP was checked to add up exactly; at this volume there is no performance reason to change it.
+- **Rejected alternatives:** LightGBM: It would swap a tested dependency for an untested one to save another.
+- **Rejected alternatives:** Logistic regression: The interactions between variables would have to be written by hand.
+- **Rejected alternatives:** Early stopping: It would use a random split inside training, which breaks the order in time.
 
-- **Intervalos.** Remuestreo pareado por clientes enteros de la prueba, 1.000 remuestras con semilla 0, los mismos índices para los dos puntajes.
+**Each customer’s reasons** (D15)
 
-### 3.5 Consumo y gobernanza
+- **Selected alternative:** SHAP (TreeExplainer) on the uncalibrated classifier’s log-odds, with additivity checked on every row: if the reasons do not add up to the customer’s risk, the task fails. It is the only verified way to give exact reasons per customer, and checking it on every row turns the condition into a guard rather than a convention.
+- **Rejected alternatives:** Permutation importance: It gives no reasons per customer.
+- **Rejected alternatives:** An in-house TreeSHAP: It is another project.
 
-Las tablas y el diseño del tablero, los archivos del sitio y los reportes de cada corrida están en [4.1](#41-entregables-operativos). La documentación que acompaña al flujo:
+**BG/NBD: which implementation?** (D17)
 
-| Documento | Qué contiene |
-| --- | --- |
-| [docs/research.md](docs/research.md) | La investigación del conjunto de datos: la fuente, la etiqueta, las reglas y una primera mirada |
-| [docs/requirements.md](docs/requirements.md) | Requerimientos, datos medidos y criterios de aceptación, con los criterios del modelo fijados antes de construir |
-| [docs/plan.md](docs/plan.md) | Arquitectura, módulos, contratos y unidades de trabajo |
-| [docs/decisions.md](docs/decisions.md) | Registro de decisiones, cada una con su contexto, opciones, decisión, motivo, lo que afecta, quién y estado |
-| [docs/model-card.md](docs/model-card.md) | Ficha del modelo: uso, datos, la etiqueta y su ruido, métodos, resultados, sensibilidades, rendimiento y límites |
-| [docs/data-dictionary.md](docs/data-dictionary.md) | Diccionario de datos: las 8 columnas de la fuente con su uso, las 16 variables con su unidad y cada columna de las 27 tablas del modelo estrella, la privada incluida |
-| [docs/runbook.md](docs/runbook.md) | Qué hacer ante una huella distinta, una entrega rechazada, la trampa de fuga, un sello que no se reproduce, un bloqueo de la carpeta de datos y más (R1-R14), con los comandos y sus códigos de salida |
-| [docs/paso-a-paso.md](docs/paso-a-paso.md) | Cómo se construyó, unidad por unidad, con sus commits |
-| [docs/review-advisories.md](docs/review-advisories.md) | Las advertencias de las revisiones nativas, una sección por revisión, con su estado |
-| [docs/evaluation.md](docs/evaluation.md) | La evaluación independiente de `e28b1fb` (L55): quién y cómo, las especificaciones, los criterios C01-C10 declarados contra los recalculados, las sondas, el bloqueante y las 18 advertencias, las correcciones con sus commits y su comprobación (L56) |
+- **Selected alternative:** Project 02’s BG/NBD in SciPy, copied and fitted once on the training history, with lifetimes only as a reference in the tests. It works, measured on this same problem: its expected purchases and their order are practically lifetimes’.
+- **Rejected alternatives:** lifetimes in production: It would put an unmaintained library in production.
+- **Rejected alternatives:** Importing project 02’s package: It would couple two projects that are published separately.
 
-## 4. Producto final
+**Costs and the contact threshold** (D22)
 
-### 4.1 Entregables operativos
+- **Selected alternative:** Assumed and declared costs, in generic units: an offer of 5, a save rate of 0.2 and a retained customer worth 50, a break-even point of 0.5; the threshold maximises net benefit in validation, and the choice is repeated at 17 break-even points, from 0.10 to 0.90. There is no defensible public source for the cost of an offer or the value of a customer; 0.5 says “contact when leaving is more likely than staying”, a choice with no source that is declared.
+- **Rejected alternatives:** The research’s illustrative values: Their break-even point would contact almost everyone, and then no order helps.
+- **Rejected alternatives:** A value per customer from their spend: Wholesalers would dominate the list, and the comparison with the rules would be mixed up.
+- **Rejected alternatives:** A fixed share of contacts: It ignores the costs.
 
-- **Tablas para Power BI:** 26 archivos Parquet (9 dimensiones y 17 hechos) en `outputs/powerbi/`, con 19 relaciones uno a varios y filtro en un solo sentido (la 19, de `dim_as_of` a `fact_tracking`, desde D90), claves únicas e integridad referencial verificadas antes de escribir, y un manifiesto con la huella de cada uno; suman 158.405 bytes. El hecho por cliente y corte, el único que lleva el número de cliente, se escribe en `outputs/private/`, que no se versiona.
-- **Diseño del tablero:** [dashboard/powerbi-design.html](dashboard/powerbi-design.html), un solo archivo de 108.129 bytes, sin recursos externos, con el modelo semántico, las relaciones, 29 medidas DAX, tres parámetros de hipótesis para los costos supuestos (costo de la oferta, tasa de rescate y valor del cliente retenido), la carga en Power Query y cinco páginas (clientes en riesgo y sus motivos, ganancia y costos, seguimiento, validación del modelo, calidad y corridas) con vistas previas dibujadas con los números reales; la columna de cliente de la lista se muestra enmascarada. El `.pbix` requiere la interfaz gráfica de Power BI Desktop y no está hecho; las medidas DAX no se ejecutaron nunca.
-- **Archivos para el sitio:** cinco JSON pequeños en `outputs/site/` (resumen, etiqueta, reglas de validación, algoritmos y retención) y un manifiesto con la huella de cada uno, 71.424 bytes sin el manifiesto; sin el número de cliente ni ningún identificador, con las celdas de menos de 10 clientes ocultas y la regla secundaria que impide recuperarlas por resta.
-- **Reportes:** `reports/evaluation_summary.json` y `.md` (los resultados de arriba), `reports/model_seal.json` (el sello) y `reports/validation/latest.md` (la última validación).
+</details>
 
-### 4.2 Lectura de resultados actuales
+#### 3.4.3 Validation protocol (time split and sealed test)
 
-Corrida real del 2026-11-12 sobre el zip de UCI (huella SHA-256 `572e3627…7bfb`): el lanzamiento al 2011-07-31, cuatro entregas mensuales (2011-08 a 2011-11), el cierre con los 9 días de 2011-12 y una corrida sin entrega. El modelo se entrenó con siete cortes de 2010, se eligió y calibró con los de marzo y abril de 2011 (V1) y eligió su umbral con el de mayo (V2); la prueba, los cortes del 2011-08-01 y del 2011-09-01 (3.935 filas de 2.017 y 1.918 clientes, 34,4 % de bajas), se evaluó una sola vez y quedó en el sello `reports/model_seal.json`, que no se reescribe. Los criterios se fijaron y se confirmaron en Git antes del primer código (`docs/requirements.md`, sección 8.1; `docs/decisions.md`, D18), junto con lo que se esperaba: que el modelo no cumpliera C02, C03 ni C07. **Así salió, y peor: el modelo no supera ningún criterio de orden ni de beneficio (C01-C05, C09), no cumple el de calibración (C07) y cumple solo C06 y C08.**
+A split in time, by cut-off date, with at least 90 days between the last training cut and the first validation cut, and between the last validation cut and the first test cut, so that no block’s label window reaches the next: training, with 7 cuts from June to December 2010 (15,297 rows); V1, with those of March and April 2011, to choose among the 24 candidates by log loss and calibrate with isotonic regression; V2, with May’s, to choose the threshold; and the test, with those of August and September 2011 (3,935 rows), evaluated once under a seal that is never rewritten. The rules are calibrated the same way, so they can decide by cost too. The 95 % intervals come from 1,000 resamples paired by customer, seed 0. There is no random cross-validation: each block comes after the one before.
 
-En el seguimiento, en los dos cortes de prueba el modelo esperaba 875,0 y 825,2 bajas, y hubo 739 y 615. Las figuras de la corrida:
+### 3.5 Consumption and governance
 
-![La tasa de bajas de cada corte, por bloque de la partición](docs/figures/churn_by_cut.png)
+- **Consumption interfaces.** The Parquet tables feed the full design of a dashboard in HTML, with the model, three what-if parameters for the assumed costs and five pages; five small JSON files, with their manifest, feed this page and its dashboard.
+- **Privacy.** No published file carries the customer number; cells of fewer than 10 customers are hidden, and a secondary rule keeps them from being recovered by subtraction.
+- **Governance artefacts.** The report task writes the evaluation summary with each criterion’s verdict, the one the README copies; with it come the model card (intended and unintended use, limits), the decision log and the last run’s validation report.
+- **Full lineage.** Every site file carries the run key, the SHA-256 fingerprint of the source zip and the CC BY licence attribution.
 
-![La tasa de bajas según N y M, y los silencios que vuelven](docs/figures/label_n_by_m.png)
+## 4. Final product
 
-![La curva de ganancia del modelo y de las reglas en la prueba](docs/figures/gain_curve.png)
+### 4.1 Operational deliverables
 
-![El beneficio neto del modelo y de B* en V2 según el punto de equilibrio del costo](docs/figures/cost_curve.png)
+- **Automation.** A monthly flow was set up that loads the invoices of each delivery and checks them against 39 rules: 18 reject the delivery if they fail, 13 fix, set aside or flag, and 8 only report. Then it moves the cut-off date, recalculates the variables from what came before and scores each active customer with the model, which was trained once and sealed. Since the file is historical, the flow splits it into 6 deliveries: the launch, four monthly ones and the close on 9 December 2011. It is built for Airflow, where it was tested in Docker.
+- **Model in use.** Each active customer gets, at each cut, a risk and its three main reasons, and goes on the contact list if the risk passes the threshold of 0.55, which comes from the assumed costs. Among those contacted at the 1 September 2011 cut, the average time between purchases is among the three reasons of 77.9 %. In the 5 cuts from August to December 2011 there were 11,353 scorings and 3,256 went on the list. In the two test cuts, whose 90-day window has closed, the model expected 875.0 and 825.2 to leave and 739 and 615 did; of the 553 and the 488 on the list, 337 and 266 left. The other three cuts are still open on 9 December 2011.
+- **Dashboard.** Everything ends in the tables of a star schema and in the dashboard shown at the top, drawn from the run’s real numbers: four views, from the list of customers at risk to the gain, the follow-up and the evidence, with the assumed costs in view and totals only, no customer. With each delivery the tables and the dashboard’s design in HTML are renewed, and both are delivered with the project.
 
-![La calibración del modelo en la prueba](docs/figures/calibration.png)
+### 4.2 Reading the current results
 
-![La importancia media de cada variable según SHAP](docs/figures/shap_importance.png)
+Last validated run: 20261112T182457477294Z, of 12 November 2026, with data to 9 December 2011; 6 deliveries loaded and 0 rejected.
 
-![Los clientes que volvieron y los que se fueron, corte por corte](docs/figures/retention_by_cut.png)
+- **Customers scored.** In the 5 cuts from August 2011 to December 2011 there were 11,353 scorings, and 3,256 went on the contact list at the threshold of 0.55.
+- **Test cuts, with the window closed.** At the cuts of 1 August 2011 and 1 September 2011 the model expected 875.0 and 825.2 to leave, and 739 and 615 did: it overestimates churn.
+- **The contact list at those cuts.** Of the 553 and the 488 customers contacted, 337 and 266 left.
+- **Open cuts.** The 3 cuts that follow are scored and followed; their 90-day window ends after the data, so they are not evaluated yet.
+- **Most frequent reason.** Among those contacted at the cut of 1 September 2011, “average time between purchases” is among the three reasons of 77.9 %.
 
-## 5. Conclusión
+## 5. Conclusion
 
-### 5.1 Evaluación frente a criterios de éxito
+### 5.1 Evaluation against the success criteria
 
-**Cómo leerlo.**
+**Status:** 2 of 9 success criteria met.
 
-- **El orden de los clientes: el modelo no supera a las reglas.** Su AUC en la prueba es 0,745; el de RFM 0,746, el de BG/NBD (B*, la base más fuerte elegida en la validación) 0,749 y el de la frecuencia de 365 días 0,752, la más alta de todas. La recencia sola da 0,600. Frente a RFM la diferencia es −0,0017, con un intervalo del 95 % de −0,0145 a 0,0110 (C01 y C02 no se cumplen); frente a B*, −0,0043, de −0,0166 a 0,0078 (C03 no se cumple). Ninguna diferencia sale del ruido: con unos 2.000 clientes por corte, la prueba no separa diferencias de menos de unas 0,01 de AUC. **El modelo no supera a RFM ni a B*, y la frecuencia sola ordena mejor que los tres.**
-- **El beneficio con los costos supuestos: tampoco.** Con una oferta de 5 u., una tasa de rescate de 0,2 y un cliente retenido que vale 50 u. (punto de equilibrio 0,5), el modelo contacta al 26,5 % de los clientes con su umbral de 0,55 y deja 209,7 u. por cada 1.000 clientes; B* deja 238,9 con su propio umbral (C05 no se cumple), RFM 209,7 y la frecuencia 106,7; contactar a todos pierde 1.559,1. En el 10 % de mayor riesgo, el modelo capta 253 bajas y B* 268 (C04 no se cumple). En la curva de costo, el modelo deja al menos lo de B* en 9 de los 17 puntos de equilibrio de 0,10 a 0,90 (C09 no se cumple).
-- **Lo que sí cumple.** Actuar con el modelo deja más que no contactar a nadie y que contactar a todos (C06: 209,7 u. frente a 0), y su Brier, 0,1976, es menor que el de B*, 0,2030 (C08), aunque mayor que el de RFM, 0,1956.
-- **La calibración falla, como se esperaba.** El modelo se calibró en V1, con 42,6 % de bajas, y la prueba, de agosto a noviembre, tiene 34,4 %: el error de calibración esperado es 0,089 y el sesgo 0,088, frente a 0,03 y 0,02 (C07 no se cumple). En el seguimiento se ve igual: en los dos cortes de prueba el modelo esperaba 875,0 y 825,2 bajas, y hubo 739 y 615.
-- **Por corte y con otras definiciones, lo mismo** (C10, informativo): el AUC del modelo es 0,744 y 0,746 en los dos cortes; con N = 60, N = 120, M = 180 o sin el corte de diciembre en el entrenamiento, el intervalo de la diferencia con B* siempre contiene el cero o queda por debajo (con M = 180, de −0,021 a −0,0003).
-- **Lo que esto quiere decir para un equipo de retención:** con las facturas, una regla que cuente cuántos días compró cada cliente en el último año ordena el riesgo igual o mejor que el modelo. Lo que el modelo agrega es una probabilidad (mal calibrada en la prueba) y los motivos de cada cliente, no un mejor orden. El aporte del proyecto es haberlo medido con la etiqueta, los cortes y la prueba sellada escritos antes, y dejar el flujo, el seguimiento, el tablero y la curva de costo listos para usarlos con la regla.
+**Not met:**
 
-La tabla completa de los criterios, con el umbral, el valor y el veredicto de cada uno, está en [Resultados completos de la corrida](#resultados-completos-de-la-corrida).
+- Discrimination against RFM: AUC 0.745 against 0.746.
+- Improvement beyond the noise against RFM: the AUC difference is −0.0017, with a 95 % interval of −0.0145 to 0.0110.
+- Improvement beyond the noise against BG/NBD, validation’s strongest rule: −0.0043, with an interval of −0.0166 to 0.0078.
+- Capture in the 10 % at highest risk: 253 leavers, against 268 for BG/NBD.
+- Net benefit against BG/NBD at its own threshold: 209.7 against 238.9 units per 1,000 customers.
+- Calibration on the test: a calibration error of 0.089 and a bias of 0.088, against limits of 0.03 and 0.02.
+- Sensitivity to costs: it leaves at least BG/NBD’s benefit at 9 of the 17 break-even points, not at all of them.
 
-### 5.2 Limitaciones metodológicas
+The two criteria that are met, and the informative one:
 
-Lo que no sirve: decir quién se dio de baja de verdad (la baja es un silencio definido, no un dato), medir el efecto de una oferta (no hay un experimento de retención), poner un costo real a una oferta o a un cliente (los datos no lo traen), predecir a los clientes sin número ni a los que llevan más de 90 días sin comprar, ni reemplazar una evaluación con datos de otra tienda: es un archivo de una sola tienda, de 2009 a 2011.
+- **Acting with the model pays.** At the assumed costs it leaves 209.7 units of net benefit per 1,000 customers, against 0 for contacting no one and −1,559.1 for contacting everyone.
+- **Brier against the strongest rule.** Its Brier, 0.1976, is lower than BG/NBD’s, 0.2030, though higher than RFM’s, 0.1956.
+- **By cut and with other definitions (informative).** With 60 or 120 days without buying as churn, looking back 180 days or without the December cut in training, the interval of the difference with BG/NBD always holds zero or lies below it: no variant comes out of the noise in the model’s favour.
 
-Las limitaciones completas (un solo archivo, sin bajas comprobadas ni experimento de retención, costos supuestos, cortes censurados, evaluación única, calibración que depende del período) están en la [ficha del modelo](docs/model-card.md).
+**Comparison on the test**
 
-### 5.3 Trabajo futuro
+| Method evaluated | AUC · net benefit per 1,000 customers | Role in the system |
+| --- | --- | --- |
+| Model (gradient boosting) | 0.745 · 209.7 | Risk and three reasons per customer; does not order better than the rules |
+| 365-day frequency | 0.752 · 106.7 | Orders best on the test; anyone can write it |
+| BG/NBD | 0.749 · 238.9 | Validation’s strongest rule and the one that leaves the most benefit |
+| RFM | 0.746 · 209.7 | The reference rule of the first two criteria |
+| Recency | 0.600 · −47.0 | Alone it orders little: how long ago they bought is not enough |
+| Contact everyone | 0.500 · −1,559.1 | Loses at the assumed costs |
 
-- **Lo que sigue pendiente:** la evaluación independiente, sus correcciones y su comprobación ya se hicieron y están en [docs/evaluation.md](docs/evaluation.md) (plan, sección 28); falta la corrida programada de Airflow sobre el archivo real (la prueba de Docker pasa en modo rápido), los costos reales de una oferta y el `.pbix`, que requiere Power BI Desktop. El detalle está en la [ficha del modelo](docs/model-card.md).
+### 5.2 Methodological limits
 
-Todavía no están hechos la corrida programada de Airflow sobre el archivo real y el `.pbix`.
+The result holds for one shop’s file, from 2009 to 2011. Churn is a 90-day silence the project defines, not a fact in the data, and almost a third of those silences buy again; there is no retention experiment, so what an offer would achieve was not measured. The costs are assumptions: another break-even point gives another threshold and another list. The test was evaluated once, with two cuts of about 2,000 customers each, which do not separate AUC differences below about 0.01. The probability was calibrated in spring and overestimates late-summer churn. With these data, a frequency or RFM rule is the honest place to begin: it orders as well as the model and anyone can write it.
 
-## Resultados completos de la corrida
+### 5.3 Future work
 
-El bloque siguiente no se escribe a mano: lo copia `python -m churnrisk docs-sync` de `reports/evaluation_summary.md`, que escribe el propio flujo, con sus títulos un nivel más abajo.
+- **A scheduled run on the real file.** The real repeat ran from the command line, and the Airflow DAG in Docker only in quick mode, on synthetic data; it still has to run on the real file.
+- **Real costs and a retention experiment.** With the real cost of an offer and a test with a control group, the save rate and the value of a customer would stop being assumptions.
+- **Recalibrate on a recent period.** In use, the probability would have to be recalibrated on the latest cuts, because the spring calibration overestimates churn when the rate drops.
 
-<!-- results:start -->
-### Resultados
+## Run it
 
-Criterios fijados antes de construir, evaluados una vez sobre la prueba.
-
-| Criterio | Umbral | Valor | Cumple | Veredicto |
-| --- | --- | ---: | --- | --- |
-| C01 Discriminación frente a RFM | AUC(modelo) > AUC(B2) | 0,745 | no | El modelo no supera a RFM en AUC: 0,745 frente a 0,746. |
-| C02 Mejora fuera del ruido frente a RFM | límite inferior del intervalo del 95 % de AUC(modelo) − AUC(B2) > 0 | −0,002 | no | El modelo no supera a RFM fuera del ruido: la diferencia de AUC es −0,00, con un intervalo del 95 % de −0,01 a 0,01. |
-| C03 Mejora fuera del ruido frente a la base más fuerte | límite inferior del intervalo del 95 % de AUC(modelo) − AUC(B*) > 0 | −0,004 | no | El modelo no supera a la base más fuerte fuera del ruido: la diferencia de AUC es −0,00, con un intervalo del 95 % de −0,02 a 0,01. |
-| C04 Captura en el 10 % superior | bajas en el 10 % de mayor riesgo del modelo > las del 10 % de B* | 253,000 | no | En el 10 % de mayor riesgo, el modelo no capta más bajas que la base más fuerte: 253 frente a 268. |
-| C05 Beneficio neto frente a la base más fuerte | BN(modelo, t*) > BN(B*, t*_B*) | 209,657 | no | Con los costos supuestos, el modelo no deja más beneficio neto que la base más fuerte con su propio umbral: 209,7 u. frente a 238,9 u. por cada 1.000 clientes. |
-| C06 Conviene actuar con el modelo | BN(modelo, t*) > máx(BN(contactar a todos), 0) | 209,657 | sí | El modelo supera a contactar a todos y a no contactar a nadie: 209,7 u. por cada 1.000 clientes frente a 0,0. |
-| C07 Calibración en la prueba | ECE ≤ 0,03 y \|sesgo\| ≤ 0,02 | 0,089 | no | La calibración en la prueba no cumple: ECE 0,089 y sesgo 0,088. |
-| C08 Brier frente a la base más fuerte | Brier(modelo) < Brier(B*) | 0,198 | sí | El Brier del modelo es menor que el de la base más fuerte: 0,1976 frente a 0,2030. |
-| C09 Sensibilidad a los costos | BN(modelo) ≥ BN(B*) en cada punto de equilibrio de 0,10 a 0,90 | 9,000 | no | El modelo no deja al menos el beneficio de la base más fuerte en cada punto de equilibrio: en 9 de los 17 de 0,10 a 0,90. Es decir: lo deja en 9 de los 17 puntos de equilibrio y no lo deja en 8. |
-| C10 Por corte y sensibilidades (informativo) | sin umbral: que esté escrito y sea consistente | sin dato | informativo | Por corte de prueba: 2011-08-01: AUC 0,744, tasa de bajas 0,366, diferencia con B2 −0,00 y con B* −0,00; 2011-09-01: AUC 0,746, tasa de bajas 0,321, diferencia con B2 −0,00 y con B* −0,01. Sensibilidades: N = 60 días (2011-08-01, 2011-09-01): AUC del modelo 0,737, de RFM 0,729 y de B* 0,744, intervalo de la diferencia con B* de −0,02 a 0,00; N = 120 días (2011-08-01): AUC del modelo 0,756, de RFM 0,766 y de B* 0,754, intervalo de la diferencia con B* de −0,02 a 0,02; M = 180 días (2011-08-01, 2011-09-01): AUC del modelo 0,750, de RFM 0,766 y de B* 0,760, intervalo de la diferencia con B* de −0,02 a −0,00; sin el corte de diciembre en el entrenamiento (2011-08-01, 2011-09-01): AUC del modelo 0,744, de RFM 0,746 y de B* 0,749, intervalo de la diferencia con B* de −0,02 a 0,01. |
-
-Estado: sealed. Corrida 20261112T182457477294Z del 2011-12-09.
-<!-- results:end -->
-
-## Revisiones y evaluación
-
-La evaluación independiente evaluó `e28b1fb` en un clon aparte, con su propio lector del libro, su propio neteo, sus cortes, sus etiquetas, sus reglas y su BG/NBD: reprodujo cada cifra del resumen, corrió la repetición real y `-m docker` (2 pasaron en 147,6 s, en `e28b1fb`) y encontró un bloqueante, que la documentación decía de U30 y U31 cosas que el registro todavía no tenía (B1), y 18 advertencias (A1-A18; L55). Las correcciones elegidas se hicieron cada una con la prueba primero: `c139ca2`, `aad019b`, `1829c5f`, `969f2b4`, `07d2a54` y `ab8f0e4` (D89-D92), y después una tanda de velocidad de la suite (`816289e`, `94843fd`, D93). La comprobación de las correcciones rehízo cada prueba en clones de `e28b1fb` y de `94843fd`: cerró B1, A1, A2, A4, A5, A10, A11, A13, A14, A16 y D93; repitió la corrida real, que reproduce cada salida versionada salvo las claves de corrida y las horas, y no encontró ningún bloqueante nuevo (L56). El informe, con la comprobación, es [docs/evaluation.md](docs/evaluation.md).
-
-La corrida real se hizo dos veces. Antes de versionar, la revisión de privacidad encontró en dos Parquet celdas de menos de 10 clientes que el sitio oculta; se corrigió el SQL (`4d0a36b`, D86) y la misma corrida se repitió en una copia nueva del proyecto: su sello coincide con el primero en los 485 valores salvo las dos claves de corrida, así que se versionaron las salidas de la repetición y el sello de la primera, byte a byte (`a108a12`, D85). Nada se ajustó después de ver la prueba.
-
-Las revisiones dejaron 155 advertencias, el registro y U31 suman 7 hallazgos más y la evaluación independiente, un bloqueante y 18 advertencias; las 9 revisiones que siguieron a la evaluación (L56) dejaron 39 más y la comprobación de las correcciones, 2: 107 están corregidas, 28 se dejaron con evidencia y 87 siguen abiertas, ninguna bloqueante; cada una, con su revisión y su estado, está en [docs/review-advisories.md](docs/review-advisories.md). Cómo fue cada paso, con los commits, está en [docs/paso-a-paso.md](docs/paso-a-paso.md).
-
-Advertencias abiertas: `U01/R1-001`, `U01/R3-env-coupled-tests`, `U04/R1-002`, `U04/R4-staging-leak`, `U04/R4-deadline-slack`, `U05/R4-except-exception-mask`, `U05/R4-tempdir-hard-kill`, `U06-U10b/R4-write-lock-before-noop-check`, `U18/R3-run-variants-every-post-seal-call`, `U18/R3-definition-tables-lookahead-unverified`, `U20/R2-suppression-cte-duplicated`, `U20/R2-country-key-coalesce-duplicated`, `U20/R2-cryptic-unit-constant`, `U20/R2-star-keys-check-repetition`, `U21-U25a/R4-threshold-check-no-retroactive-migration`, `U21-U25a/R3-fixture-net-days-single-slot-cache-fragility`, `U21-U25b/R3-001`, `U21-U25b/R3-002`, `F1/R3-acquire-wait-no-timeout`, `F2/R2-bootstrap-offset-arithmetic`, `F2/R2-own-sheets-regex-xml`, `F2/R2-id-based-memoization`, `U27/R4-sqlite-race-window`, `U27/R4-postgres-password-rotation-restart-loop`, `U27/R3-002`, `U28/R2-figures-loadsite-duplicate-check`, `U28/R2-figures-shap-test-variable-name`, `G1/R4-figures-partial-rename-observability`, `G1/R2-cli-dup-module-literal`, `G1/R2-figures-reversed-exitstack-order`, `G1/R2-figures-duplicated-hidden-cell-logic`, `G1/R3-rename-partial-failure-untested`, `G1/R3-make-fixture-importerror-not-generalized`, `D86/R3-reason-tie-coverage`, `D86/R3-shap-passthrough-unverified`, `U29-1/R3-001`, `U29-1/R3-002`, `U29-1/R3-003`, `U29-2a/R3-1`, `U29-2a/R3-2`, `U29-2b/R3-manifest-integrity-unverified`, `U29-2b/R3-run-key-nondeterministic`, `U29-3/R1-001`, `U29-4/R3-001`, `U29-4/R3-002`, `Evaluación/A3`, `Evaluación/A6`, `Evaluación/A7`, `Evaluación/A8`, `Evaluación/A9`, `Evaluación/A12`, `Evaluación/A15`, `Evaluación/A17`, `Evaluación/A18`, `U30/R2-docs-sync-heading-regex-fence-unaware`, `U30/R2-docs-sync-param-name-type-shift`, `U30/R2-docs-sync-redundant-path-wrapping`, `U30/R3-heading-demotion-edge-cases`, `U31-1/R2-dict-fallback`, `U31-1/R2-figures-dir-coupling`, `U31-1/R3-dtype-keyerror`, `U31-3/R2-002`, `U31-3/R2-003`, `U31-3/R3-001`, `A1/R3-001`, `A1/R3-002`, `A10-código/R2-fragile-title-slicer-match`, `A10-código/R2-duplicate-title-literal`, `A10-código/R2-unexplained-constant-six`, `A10-código/R3-tables-of-overmatch`, `A10-HTML/R2-term-overload`, `A10-HTML/R2-dual-relationship-same-column`, `A10-HTML/R3-001`, `A10-HTML/R3-002`, `A4-A5/R2-verdict-c09-coupling`, `A4-A5/R2-verdict-int-truncation`, `A4-A5/R2-duplicated-cell-counter`, `A4-A5/R3-001`, `A4-A5/R3-002`, `A4-A5/R3-003`, `A11-A2-A14-A13/R3-pipeline-coverage-narrowed`, `A11-A2-A14-A13/R3-figures-fixture-session-sharing`, `A11-A2-A14-A13/R3-import-guard-limited-scope`, `Docs-velocidad/R2-conftest-gc-threshold-global-magic`, `Docs-velocidad/R3-gc-threshold-untested-cleanup-timing`, `Docs-velocidad/R3-gc-threshold-manual-only-validation`, `Comprobación/margen-de-la-suite` (cada una con la clave de su revisión y su id, como en el documento de advertencias).
-
-## Cómo correrlo de punta a punta
-
-Requisitos: Windows 10 u 11 (o Linux), Python 3.11 y, solo para Airflow, Docker Desktop. No se usa el Python global: el proyecto trae su propio entorno. El paquete no se instala en el entorno: los comandos lo encuentran con `PYTHONPATH` en `src`, como hacen las pruebas y el compose.
+Python 3.11, on PowerShell, from the repository folder:
 
 ```powershell
-cd 04-Ecommerce-Churn-Risk
 py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-dev.txt
 $env:PYTHONPATH = "src"
 
-# Pruebas (sin las que necesitan el archivo real ni Docker)
+# Tests, without the ones that need the real file or Docker
 .venv\Scripts\python -m pytest
 
-# Prueba rápida de punta a punta sobre datos sintéticos. Todo lo que lee y escribe queda en data\quick\
-# (no se versiona): no toca el almacén, los Parquet, el HTML, los reportes ni el sello de la corrida real.
+# Quick end-to-end run on synthetic data; everything stays in data\quick\, which is not versioned
 .venv\Scripts\python -m churnrisk make-fixture data\quick\online_retail_fixture.zip
 .venv\Scripts\python -m churnrisk replay --config config\pipeline.quick.toml
 
-# Corrida real: descarga el zip (46 MB) si no está en data\raw\ y corre las seis entregas, y después la corrida sin entrega
-# (así se corrió en U29: las dos terminaron con 0, D85)
+# Real run: downloads the zip (46 MB) if it is missing and runs the six deliveries, then the run without one
 .venv\Scripts\python -m churnrisk replay
 .venv\Scripts\python -m churnrisk run
 
-# Pruebas con el archivo real
+# Tests with the real file
 .venv\Scripts\python -m pytest -m real_data
 
-# Figuras de la documentación y bloque de resultados del README
+# Documentation figures and the results block of README.es.md
 .venv\Scripts\python -m churnrisk figures
 .venv\Scripts\python -m churnrisk docs-sync
 ```
 
-En el proyecto, la corrida real ya se hizo y su sello está versionado. Repetirla desde cero en una copia nueva del proyecto, con solo `data/raw/` en `data/` y la misma configuración, dio en U29 un sello igual al versionado en sus 485 valores salvo las dos claves de corrida (D85); con otra configuración, el resultado se guarda aparte, como posterior al sello, y no reemplaza el sellado. Como una repetición reescribe las salidas versionadas con sus propias claves de corrida, conviene hacerla en una copia de la carpeta. En Linux, el entorno se crea con `python3.11 -m venv .venv`, los comandos usan `.venv/bin/python` y la variable se fija con `export PYTHONPATH=src`.
+Every operation, with its failures and how to recover, is in the [runbook](docs/runbook.md) (in Spanish).
 
-Con Airflow (Docker Compose): `cd airflow`, `copy .env.example .env` y completar en `.env` las cuatro claves, que no tienen valor por defecto; en Linux, agregar `AIRFLOW_UID` con el id propio (`id -u`). Después, `docker compose up airflow-init` y `docker compose up -d`; la interfaz queda en `http://localhost:8080`, publicada solo en `127.0.0.1`. La prueba que recorre esta parte de punta a punta en modo rápido (`tests/e2e/test_airflow_docker.py`, con la marca `docker`) pasó en la evaluación independiente (`e28b1fb`, 2 pasaron en 147,6 s; L55) y en su comprobación (`94843fd`, 2 pasaron en 90,48 s; L56); lo que no se corrió son estos pasos con el archivo real.
+## Source and licence
 
-Medido en la corrida real con el archivo ya descargado (AMD Ryzen 9 5950X de 16 núcleos, 64 GB, Windows 10, un solo proceso): `replay` terminó en 312,2 s de reloj y la corrida sin entrega en 3,6 s, contra el tope de 15 minutos; el lanzamiento, 123 s contra 5 minutos (36,5 s de ellos en leer el libro), y cada corrida mensual de 27 a 65 s contra 2 minutos. El pico de memoria que mide el requisito es el del conjunto de trabajo del proceso (`PeakWorkingSetSize` de `GetProcessMemoryInfo`; en Linux, `ru_maxrss`): 1.868,5 MB contra el tope de 2,5 GB. La memoria comprometida del mismo proceso (`PeakPagefileUsage`), que se guarda como cifra informativa y sin tope, llegó a 3.709,2 MB. La suite rápida (sin `real_data` ni `docker`) tarda 109,13 s y 108,23 s, medida dos veces seguidas en reposo en una copia nueva de `b5637a6`, que tiene el código de `816289e`, con 880 pruebas (879 pasan y una se salta en Windows), contra el límite de 120 s y sobre el presupuesto de trabajo de 100 s. Antes de eso: quien escribió D93 midió 108,27 s y 107,36 s con el cambio de `816289e` y 110,89 s y 111,98 s sin él, la comprobación midió 111,14 s y 108,34 s en `94843fd` y 113,44 s sin el cambio, y al cerrar las correcciones de la evaluación se había medido 118,99 s y 119,17 s en `07d2a54` (L56). La prueba de Docker (`-m docker`) pasa: 2 de 2 en 147,6 s en la evaluación (`e28b1fb`), en 95,44 s al cerrar las correcciones y en 90,48 s en la comprobación (`94843fd`). Tabla por tarea en la [ficha del modelo](docs/model-card.md).
+Data source: Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Changes: the copies of the overlap between the sheets removed, lines without a customer and service codes set aside, cancellations discounted from the purchases they cancel, the history split into monthly deliveries, and cuts, labels, variables, risks, reasons, metrics and criteria calculated.
 
-## Paso a paso
-
-El proyecto se construyó en 31 unidades de trabajo más las tandas de correcciones que dejaron las revisiones y seis de velocidad de la suite, cada una con sus pruebas y su commit: investigación, requerimientos y plan, entorno y configuración, accesorio sintético, descarga con huella, lectura del libro y roles de las líneas, neteo de anulaciones, entregas, validación, almacén y SQL, cortes y etiqueta, variables y guardas de fuga, reglas y BG/NBD, modelo y calibración, motivos con SHAP, umbral por costo, lanzamiento congelado y sello, evaluación y criterios, sensibilidades, seguimiento mensual, modelo estrella, medidas DAX, diseño del tablero, exportación para el sitio, un solo escritor, tareas y cierre ordenado, línea de comandos, Airflow y Docker, figuras, corrida real y documentación. La cronología completa, con lo que se hizo, lo que se probó y lo que salió en cada una, está en [docs/paso-a-paso.md](docs/paso-a-paso.md).
-
-## Fuente y licencia
-
-Fuente de datos: Chen, D. (2012). Online Retail II [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5CG6D, licencia CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Modificaciones: se quitaron las copias del solapamiento entre las dos hojas, se apartaron las líneas sin cliente y los códigos de servicio, se descontaron las anulaciones de las compras que anulan, se repartió la historia en entregas mensuales y se calcularon cortes, etiquetas, variables, riesgos, motivos, métricas y criterios.
-
-Los datos crudos no se versionan: el flujo descarga el archivo y verifica su huella. Ninguna salida publicada lleva el número de cliente: vive solo en SQLite, en `data/interim/` y en `outputs/private/`, que no se versionan.
+The raw data is not versioned: the flow downloads the file and checks its hash. No published output carries a customer number.

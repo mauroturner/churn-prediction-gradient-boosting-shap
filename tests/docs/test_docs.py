@@ -54,9 +54,17 @@ FAILED = ["C01", "C02", "C03", "C04", "C05", "C07", "C09"]   # D85: what the sea
 PASSED = ["C06", "C08"]
 
 
+def root_document(project_root: Path, name: str) -> str:
+    """A document at the portfolio's root. The project is also published on its own repository, where the test that reads it is skipped."""
+    path = project_root.parent / name
+    if not path.is_file():
+        pytest.skip(f"{name} is at the root of the portfolio, which is not here")
+    return path.read_text(encoding="utf-8")
+
+
 @pytest.fixture(scope="module")
 def readme(project_root: Path) -> str:
-    return (project_root / "README.md").read_text(encoding="utf-8")
+    return (project_root / "README.es.md").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -75,6 +83,7 @@ def section(text: str, title: str) -> str:
 
 
 def test_readme_headings_in_order_and_results_block_matches_summary(project_root: Path, readme: str, summary: dict) -> None:
+    check_the_english_readme(project_root, readme)
     assert readme.startswith(README_TITLE + "\n")
     assert re.findall(r"^## (.+)$", readme, flags=re.MULTILINE) == README_HEADINGS   # the block's own headings sit one level down
     assert re.findall(r"^### (\d.+)$", readme, flags=re.MULTILINE) == README_SUBSECTIONS
@@ -135,15 +144,15 @@ def test_docs_sync_puts_the_summary_one_level_down_under_the_readme_heading(proj
     (tmp_path / "reports").mkdir()
     (tmp_path / "reports" / "evaluation_summary.md").write_text("## Resultados\n\n| C01 | no supera |\n\n### Análisis posterior al sello\n\n- C05\n",
                                                                  encoding="utf-8")
-    readme = tmp_path / "README.md"
+    readme = tmp_path / "README.es.md"
     readme.write_text(f"# P\n\n## Los resultados\n\n{RESULTS_START}\nviejo\n{RESULTS_END}\n\n## Después\n", encoding="utf-8")
     config = str(tmp_path / "config" / "pipeline.toml")
     assert cli.main(["docs-sync", "--config", config]) == 0
-    assert capsys.readouterr().out.splitlines() == ["README.md actualizado"]
+    assert capsys.readouterr().out.splitlines() == ["README.es.md actualizado"]
     assert readme.read_text(encoding="utf-8") == (f"# P\n\n## Los resultados\n\n{RESULTS_START}\n### Resultados\n\n| C01 | no supera |\n\n"
                                                   f"#### Análisis posterior al sello\n\n- C05\n{RESULTS_END}\n\n## Después\n")
     assert cli.main(["docs-sync", "--config", config]) == 0
-    assert capsys.readouterr().out.splitlines() == ["README.md ya estaba al día"]
+    assert capsys.readouterr().out.splitlines() == ["README.es.md ya estaba al día"]
 
 
 # --- U31: the decisions, the stated test count, the memory figures, the tests the plan names, the dictionary, the runbook, the step by step,
@@ -171,7 +180,7 @@ def read(project_root: Path, name: str) -> str:
 
 def root_rows(project_root: Path) -> str:
     """The section of project 04 in the root ``SITE-UPDATES.md``, up to the next project or the end."""
-    text = (project_root.parent / "SITE-UPDATES.md").read_text(encoding="utf-8")
+    text = root_document(project_root, "SITE-UPDATES.md")
     assert text.count("\n## 04 ") == 1, "SITE-UPDATES.md has no section for project 04"
     return re.split(r"\n## 0\d ", text.split("\n## 04 ")[1])[0]
 
@@ -316,7 +325,7 @@ def _sync_project(project_root: Path, tmp_path: Path, dictionary: bool) -> str:
     shutil.copyfile(project_root / "config" / "pipeline.toml", tmp_path / "config" / "pipeline.toml")
     (tmp_path / "reports").mkdir()
     (tmp_path / "reports" / "evaluation_summary.md").write_text("## Resultados\n\n| C01 | no supera |\n", encoding="utf-8")
-    (tmp_path / "README.md").write_text(f"# P\n\n{RESULTS_START}\nviejo\n{RESULTS_END}\n", encoding="utf-8")
+    (tmp_path / "README.es.md").write_text(f"# P\n\n{RESULTS_START}\nviejo\n{RESULTS_END}\n", encoding="utf-8")
     if dictionary:   # next to the figures folder of the configuration (docs/figures), as docs/ is in the project
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "data-dictionary.md").write_text("# D\n\n<!-- columns:start -->\nviejo\n<!-- columns:end -->\n\nal final\n",
@@ -330,14 +339,14 @@ def test_docs_sync_writes_the_dictionary_tables_and_a_second_run_changes_nothing
 
     config = _sync_project(project_root, tmp_path, dictionary=True)
     assert cli.main(["docs-sync", "--config", config]) == 0
-    assert capsys.readouterr().out.splitlines() == ["README.md actualizado", "data-dictionary.md actualizado"]
+    assert capsys.readouterr().out.splitlines() == ["README.es.md actualizado", "data-dictionary.md actualizado"]
     from churnrisk.docs_sync import render_dictionary_tables
 
     text = (tmp_path / "docs" / "data-dictionary.md").read_text(encoding="utf-8")
     assert render_dictionary_tables(MODEL).strip() in text and "viejo" not in text and text.endswith("al final\n")
-    assert "| C01 | no supera |" in (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert "| C01 | no supera |" in (tmp_path / "README.es.md").read_text(encoding="utf-8")
     assert cli.main(["docs-sync", "--config", config]) == 0
-    assert capsys.readouterr().out.splitlines() == ["README.md ya estaba al día", "data-dictionary.md ya estaba al día"]
+    assert capsys.readouterr().out.splitlines() == ["README.es.md ya estaba al día", "data-dictionary.md ya estaba al día"]
 
 
 def test_docs_sync_without_a_dictionary_still_syncs_only_the_readme(project_root: Path, tmp_path: Path, capsys) -> None:
@@ -346,7 +355,7 @@ def test_docs_sync_without_a_dictionary_still_syncs_only_the_readme(project_root
 
     config = _sync_project(project_root, tmp_path, dictionary=False)
     assert cli.main(["docs-sync", "--config", config]) == 0
-    assert capsys.readouterr().out.splitlines() == ["README.md actualizado"]
+    assert capsys.readouterr().out.splitlines() == ["README.es.md actualizado"]
     assert not (tmp_path / "docs").exists()
 
 
@@ -376,7 +385,7 @@ def test_the_step_by_step_names_every_unit_and_cites_commits_that_exist(project_
 
 def test_relative_links_and_images_point_to_files_that_exist(project_root: Path) -> None:
     broken = []
-    for document in [project_root / "README.md", *sorted((project_root / "docs").glob("*.md"))]:
+    for document in [project_root / "README.md", project_root / "README.es.md", *sorted((project_root / "docs").glob("*.md"))]:
         text = document.read_text(encoding="utf-8")
         for target in [*LINK.findall(text), *IMAGE.findall(text)]:
             if not re.match(r"^(https?:|mailto:)", target) and not (document.parent / target).resolve().exists():
@@ -418,7 +427,16 @@ def test_the_root_rows_of_project_04_carry_the_real_figures(project_root: Path) 
                    "3.709,2 MB", "1.044.848"):
         assert figure in rows, figure
     assert rows.count("no supera") >= 2 and "C06" in rows and "C08" in rows and "pendiente" in rows and "@gmail" not in rows
-    expansion = (project_root.parent / "LANDING-EXPANSION.md").read_text(encoding="utf-8")
+    expansion = root_document(project_root, "LANDING-EXPANSION.md")
     marked = {line.split("|")[1].strip() for line in expansion.splitlines() if line.startswith("| ") and "04 Clientes que se van" in line}
     assert marked == {"SciPy", "NumPy", "SQLite", "Apache Parquet con pyarrow", "matplotlib", "pytest", "PostgreSQL", "openpyxl", "lifetimes",
                       "SHAP"}   # D37: the ones this project uses, and SHAP, its one new row
+
+
+def check_the_english_readme(project_root: Path, readme: str) -> None:
+    """README.md is the page of the project in English; README.es.md is the full one, which ``docs-sync`` and the other tests check."""
+    english = (project_root / "README.md").read_text(encoding="utf-8")
+    assert "**English** · [Español](README.es.md)" in english and "[English](README.md) · **Español**" in readme
+    assert english.count("2 of 9 success criteria met") == 2 and "undefined" not in english and "@gmail" not in english
+    for target in ("docs/screenshots/dashboard.png", "docs/screenshots/demo.png", "docs/model-card.md", "docs/evaluation.md"):
+        assert f"]({target})" in english and (project_root / target).is_file(), target
