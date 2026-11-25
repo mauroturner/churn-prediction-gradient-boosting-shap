@@ -1,4 +1,4 @@
-# Clientes que están por irse, antes de que se vayan
+# Gradient boosting y SHAP para la predicción de la baja de clientes
 
 | | |
 | --- | --- |

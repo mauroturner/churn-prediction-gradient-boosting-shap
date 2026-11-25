@@ -28,7 +28,7 @@ import pytest
 
 from churnrisk.reporting import RESULTS_END, RESULTS_START
 
-README_TITLE = "# Clientes que están por irse, antes de que se vayan"
+README_TITLE = "# Gradient boosting y SHAP para la predicción de la baja de clientes"
 README_HEADINGS = [   # the numbered outline of ESTRUCTURA-PROYECTOS.md, then the appendices, in this order (AC40)
     "1. Resumen ejecutivo", "2. Datasets y preparación", "3. Arquitectura y metodología", "4. Producto final", "5. Conclusión",
     "Resultados completos de la corrida", "Revisiones y evaluación", "Cómo correrlo de punta a punta", "Paso a paso", "Fuente y licencia",
